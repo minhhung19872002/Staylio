@@ -71,7 +71,7 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (16/09/2026).** 1223 test nghiệp vụ + **7 test cổng thanh toán**
+**Toàn bộ xanh (16/09/2026).** 1264 test nghiệp vụ + **7 test cổng thanh toán**
 (`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
 đời) · **34/34** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
@@ -873,7 +873,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ## 6. Kiểm chứng trước khi commit
 
 ```bash
-dotnet test tests/StayHost.Domain.Tests            # 1223 test nghiệp vụ
+dotnet test tests/StayHost.Domain.Tests            # 1264 test nghiệp vụ
 dotnet test tests/StayHost.Web.Tests               # 7 test cổng thanh toán (GatewayReply)
 python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13
@@ -886,7 +886,8 @@ python scripts/gateway_acceptance.py               # 30 kịch bản cổng than
 python scripts/payout_acceptance.py                # 34 kịch bản chuyển tiền + đối chiếu sao kê (docs/07 §15.4)
 python scripts/vnpay_browser_acceptance.py         # 14 kịch bản: trả tiền THẬT trên trang VNPay (cần playwright)
 python scripts/refund_acceptance.py                # 11 kịch bản hoàn tiền thật qua VNPay (docs/07 §15.6)
-python scripts/onepay_acceptance.py                # 15 kịch bản: trả bằng thẻ VISA THẬT qua OnePay
+python scripts/onepay_acceptance.py                # thẻ VISA THẬT qua OnePay — sandbox của họ giờ
+                                                   # bắt 3-D Secure 2 nên phần lớn kịch bản bỏ qua
                                                    # (chạy app với Psp__Methods__card=onepay)
 python scripts/preferences_acceptance.py           # 7 kịch bản TK-09: tuỳ chọn trên tài khoản,
                                                    # thiết bị mới đọc lại được
