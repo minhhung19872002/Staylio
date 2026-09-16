@@ -381,6 +381,11 @@ export function searchParams(page = 1) {
     minPrice: meta && state.minPrice > meta.minPrice ? state.minPrice : undefined,
     maxPrice: meta && state.maxPrice < meta.maxPrice ? state.maxPrice : undefined,
     guests: totalGuests(),
+    // totalGuests() is adults + children, so a pet never reached the server and
+    // every card quoted a stay without the pet fee while the booking panel -
+    // which asks /api/quote with the whole party - quoted it with (docs/00 §6.8).
+    infants: state.guests.infants || undefined,
+    pets: state.guests.pets || undefined,
     amenities: state.amenities.length ? state.amenities : undefined,
     sort: state.sort,
     roomType: state.roomType !== 'any' ? state.roomType : undefined,
@@ -433,7 +438,9 @@ export async function loadHome() {
     state.home = await api.home({
       checkIn: state.checkIn,
       checkOut: state.checkOut,
-      guests: totalGuests()
+      guests: totalGuests(),
+      infants: state.guests.infants || undefined,
+      pets: state.guests.pets || undefined
     });
     homeKey = key;
   } catch (err) {
@@ -709,7 +716,11 @@ export async function loadDetail(idOrSlug) {
     state.detail = await api.listing(idOrSlug, {
       checkIn: state.checkIn,
       checkOut: state.checkOut,
-      guests: totalGuests()
+      guests: totalGuests(),
+      // Same reason as searchParams: the header price has to agree with the
+      // panel underneath it.
+      infants: state.guests.infants || undefined,
+      pets: state.guests.pets || undefined
     });
     await refreshQuote();
   } catch (err) {

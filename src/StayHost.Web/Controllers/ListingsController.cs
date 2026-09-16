@@ -41,8 +41,11 @@ public class ListingsController(
         [FromQuery] DateOnly? checkIn,
         [FromQuery] DateOnly? checkOut,
         [FromQuery] int guests = 1,
+        [FromQuery] int infants = 0,
+        [FromQuery] int pets = 0,
         CancellationToken ct = default) =>
-        Ok(await catalog.GetHomeAsync(HttpContext.SessionId(), checkIn, checkOut, guests, ct));
+        Ok(await catalog.GetHomeAsync(
+            HttpContext.SessionId(), checkIn, checkOut, guests, ct, infants, pets));
 
     [HttpGet("suggest")]
     public async Task<ActionResult<IReadOnlyList<CatalogService.SuggestionDto>>> Suggest(
@@ -80,13 +83,19 @@ public class ListingsController(
         [FromQuery] string? polygon = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 24,
+        // docs/00 §6.8 — a card has to be priced by the engine checkout uses, and
+        // that engine charges for a pet. `guests` alone left every card quoting a
+        // stay the guest could not book at that price.
+        [FromQuery] int infants = 0,
+        [FromQuery] int pets = 0,
         CancellationToken ct = default)
     {
         var query = BuildQuery(
             q, category, minPrice, maxPrice, guests, amenities, sort, roomType,
             bedrooms, beds, bathrooms, superhost, guestFavorite, instantBook, freeCancellation,
             checkIn, checkOut, south, west, north, east, page, pageSize,
-            Flexible(stay, flex, months, startMonths, checkIn, checkOut), hostLanguages, polygon);
+            Flexible(stay, flex, months, startMonths, checkIn, checkOut), hostLanguages, polygon,
+            infants, pets);
 
         return Ok(await catalog.SearchAsync(query, HttpContext.SessionId(), ct));
     }
@@ -129,7 +138,8 @@ public class ListingsController(
         bool superhost, bool guestFavorite, bool instantBook, bool freeCancellation,
         DateOnly? checkIn, DateOnly? checkOut,
         double? south, double? west, double? north, double? east,
-        int page, int pageSize, FlexibleRequest? flex = null, string? hostLanguages = null, string? polygon = null)
+        int page, int pageSize, FlexibleRequest? flex = null, string? hostLanguages = null, string? polygon = null,
+        int infants = 0, int pets = 0)
     {
         var keys = (amenities ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var hostLangs = (hostLanguages ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -144,7 +154,9 @@ public class ListingsController(
             bedrooms, beds, bathrooms, superhost, guestFavorite, instantBook, freeCancellation,
             page, pageSize, checkIn, checkOut, bounds, flex,
             HostLanguages: hostLangs,
-            Polygon: area.Count >= 3 ? area : null);
+            Polygon: area.Count >= 3 ? area : null,
+            Infants: infants,
+            Pets: pets);
     }
 
     /// <summary>
@@ -203,9 +215,12 @@ public class ListingsController(
         [FromQuery] DateOnly? checkIn,
         [FromQuery] DateOnly? checkOut,
         [FromQuery] int guests = 1,
+        [FromQuery] int infants = 0,
+        [FromQuery] int pets = 0,
         CancellationToken ct = default)
     {
-        var detail = await catalog.GetDetailAsync(idOrSlug, HttpContext.SessionId(), checkIn, checkOut, guests, ct);
+        var detail = await catalog.GetDetailAsync(
+            idOrSlug, HttpContext.SessionId(), checkIn, checkOut, guests, ct, infants, pets);
         if (detail is null) return NotFound();
 
         // docs/03 §6 — the view half of "tỉ lệ xem→đặt". Counted after the page

@@ -159,6 +159,25 @@ record(1, "Tìm Đà Lạt 2 khách 3 đêm, giá giống nhau ở 3 nơi",
        s['total'] > 0 and all(same),
        f"{s['total']} kết quả, {sum(same)}/{len(same)} chỗ khớp giá thẻ = chi tiết = báo giá")
 
+# docs/00 §6.8 again, with the part of the party that used to fall off on the
+# way to the server. The search bar lets a guest add a pet and the engine
+# charges for one, but `guests` is adults + children, so cards and the detail
+# header priced a stay with no pet fee while the booking panel - which asks
+# /api/quote with the whole party - priced it with. The gap was the fee itself,
+# and the same three numbers have to agree with a pet in the party as without.
+_, sp = call(anon, f"/api/listings?q=da%20lat&guests=2&pets=1&checkIn={ci}&checkOut={co}")
+pet_same, charged = [], []
+for i in sp['items'][:3]:
+    _, q = call(anon, f"/api/quote?listingId={i['id']}&checkIn={ci}&checkOut={co}&adults=2&pets=1")
+    _, d = call(anon, f"/api/listings/{i['slug']}?checkIn={ci}&checkOut={co}&guests=2&pets=1")
+    _, plain = call(anon, f"/api/quote?listingId={i['id']}&checkIn={ci}&checkOut={co}&guests=2")
+    pet_same.append(i['stayTotal'] == q['total'] == d['card']['stayTotal'])
+    if q['petFee'] > 0:
+        charged.append(q['total'] > plain['total'])
+record("1b", "Thêm thú cưng: cả ba nơi vẫn cùng một con số",
+       sp['total'] > 0 and all(pet_same) and (not charged or all(charged)),
+       f"{sum(pet_same)}/{len(pet_same)} chỗ khớp, {sum(charged)}/{len(charged)} chỗ có tính phí thú cưng")
+
 # --- 2 ---------------------------------------------------------------------
 newbie = opener()
 email = f"acceptance{int(time.time())}@staylio.vn"
@@ -397,7 +416,10 @@ record(10, "Bồi thường: sàn phân xử, hai bên tự thanh toán, sàn kh
        f"sổ lệch {ov10['ledger']['imbalance']}, nhật ký {len(ov10['auditLog'])} dòng")
 
 passed = sum(1 for r in results if r[2])
-print(f"\n{'=' * 70}\nKẾT QUẢ: {passed}/10 tình huống nghiệm thu đạt")
+# Counted, not hard-coded: docs/04 has ten scenarios and 1b is a sub-case of
+# the first, so a written-in 10 would start under-reporting the moment
+# anything is added beside it.
+print(f"\n{'=' * 70}\nKẾT QUẢ: {passed}/{len(results)} tình huống nghiệm thu đạt")
 for n, title, ok, _ in results:
     if not ok:
         print(f"   chưa đạt: {n}. {title}")

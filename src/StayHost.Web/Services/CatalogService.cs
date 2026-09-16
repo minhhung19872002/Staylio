@@ -158,7 +158,8 @@ public class CatalogService(StayHostDbContext db)
     /// destination, then a few themed rows, then an inspiration link grid.
     /// </summary>
     public async Task<HomeDto> GetHomeAsync(
-        string sessionId, DateOnly? checkIn, DateOnly? checkOut, int guests, CancellationToken ct)
+        string sessionId, DateOnly? checkIn, DateOnly? checkOut, int guests, CancellationToken ct,
+        int infantCount = 0, int petCount = 0)
     {
         var all = await db.Listings
             // docs/01 AT-01 — only published *and* approved places reach the public.
@@ -168,7 +169,9 @@ public class CatalogService(StayHostDbContext db)
             .ToListAsync(ct);
 
         var favIds = await FavoriteIdsAsync(sessionId, ct);
-        var pricer = await BuildPricerAsync(all, checkIn, checkOut, PartySize.Of(Math.Max(1, guests)), ct);
+        var pricer = await BuildPricerAsync(
+            all, checkIn, checkOut,
+            PartySize.Of(Math.Max(1, guests)) with { Infants = infantCount, Pets = petCount }, ct);
         var cards = all.Select(l => ToCard(l, favIds, pricer)).ToList();
 
         var sections = new List<HomeSectionDto>();
@@ -294,6 +297,17 @@ public class CatalogService(StayHostDbContext db)
         IReadOnlySet<int>? Unavailable = null,
         /// <summary>The stay each listing was matched on, when the dates were flexible.</summary>
         IReadOnlyDictionary<int, StayWindow>? Matched = null,
+        /// <summary>
+        /// The rest of the party. docs/00 §6.8 wants a card priced by the same
+        /// engine checkout uses, and the engine charges for a pet
+        /// (<see cref="Pricing"/>). Carrying only a head count left every card
+        /// and every detail header quoting a stay without the pet fee, while
+        /// the booking panel - which asks /api/quote with the full party -
+        /// quoted it with. Infants ride along because they are part of the
+        /// party even though they are free.
+        /// </summary>
+        int Infants = 0,
+        int Pets = 0,
         /// <summary>docs/01 TM-18 — language codes the host must speak at least one of.</summary>
         IReadOnlyList<string>? HostLanguages = null,
         /// <summary>docs/01 TM-24 — a hand-drawn search area, as lat/lng points.</summary>
@@ -566,7 +580,9 @@ public class CatalogService(StayHostDbContext db)
         }
         var favIds = await FavoriteIdsAsync(sessionId, ct);
         var pricer = await BuildPricerAsync(
-            items, q.CheckIn, q.CheckOut, PartySize.Of(Math.Max(1, q.Guests)), ct, q.Matched);
+            items, q.CheckIn, q.CheckOut,
+            PartySize.Of(Math.Max(1, q.Guests)) with { Infants = q.Infants, Pets = q.Pets },
+            ct, q.Matched);
 
         return new SearchResultDto(
             total, page, pageSize,
@@ -943,7 +959,8 @@ public class CatalogService(StayHostDbContext db)
         Cancellation.Headline(l.CancellationTier));
 
     public async Task<ListingDetailDto?> GetDetailAsync(
-        string idOrSlug, string sessionId, DateOnly? checkIn, DateOnly? checkOut, int guests, CancellationToken ct)
+        string idOrSlug, string sessionId, DateOnly? checkIn, DateOnly? checkOut, int guests,
+        CancellationToken ct, int infants = 0, int pets = 0)
     {
         var query = db.Listings
             .Include(l => l.Images)
@@ -1087,7 +1104,8 @@ public class CatalogService(StayHostDbContext db)
             .ToList();
 
         var pricer = await BuildPricerAsync(
-            [listing, .. similar], checkIn, checkOut, PartySize.Of(Math.Max(1, guests)), ct);
+            [listing, .. similar], checkIn, checkOut,
+            PartySize.Of(Math.Max(1, guests)) with { Infants = infants, Pets = pets }, ct);
 
         return new ListingDetailDto(
             ToCard(listing, favIds, pricer),

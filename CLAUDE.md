@@ -78,7 +78,8 @@ toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay 
 **14/14** một giao dịch VNPay trả xong trên chính trang của họ, qua trình duyệt thật
 (`scripts/vnpay_browser_acceptance.py`) · **11/11** hoàn tiền thật qua VNPay
 (`scripts/refund_acceptance.py`) ·
-**10/10** kịch bản của `docs/04`
+**11/11** kịch bản của `docs/04` — 10 của tài liệu, cộng `1b` đối chiếu giá khi
+đoàn khách có thú cưng
 (`scripts/acceptance.py`) · **10/10** kịch bản quản trị của `docs/08 §13`
 (`scripts/admin_acceptance.py`) · **19/19** kịch bản của `docs/09`
 (`scripts/doc09_acceptance.py`, gồm cả 12 tình huống bắt buộc của `docs/09 §9`) ·
@@ -731,6 +732,27 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   vì câu trả lời có thể tới bằng vòng quét `docs/07 §5` chứ không theo chân khách. Cột đó
   tên là `ResponseCode`, **không phải `Code`**: đoán sai tên cột thì cờ luôn luôn tắt và
   bộ nghiệm thu lặng lẽ chạy nhánh sai.
+- **Thanh tìm kiếm cho chọn thú cưng, mà số ấy không bao giờ tới được máy chủ.**
+  `totalGuests()` là `adults + children`, và cả `searchParams()`, lời gọi trang chi
+  tiết lẫn `loadHome()` đều chỉ gửi `guests`. `/api/quote` thì nhận đủ
+  `adults/children/infants/pets`. Nên `Pricing` luôn thấy `Pets = 0` ở ba mặt đầu và
+  thấy đúng ở mặt thứ tư: khách chọn "2 khách, 1 thú cưng" đọc **3.512.586₫** trên mọi
+  thẻ và trên đầu trang chi tiết, rồi khung đặt ngay bên dưới ghi **3.758.826₫**. Đúng
+  cái `docs/00 §6.8` cấm, và comment ngay trên `searchParams` còn viết "price every card
+  with the same engine checkout uses" — lời hứa ấy đã sai từ lúc viết. Thẻ **có** tính
+  phí dọn dẹp, phí dịch vụ, thuế và phí khách thêm, nên đây là bỏ sót chứ không phải
+  chủ ý. Kịch bản `1b` của `acceptance.py` giờ neo cả hai vế: ba con số bằng nhau **và**
+  phí thú cưng thật sự được tính — vá bằng cách bỏ luôn phí thì nó vẫn hỏng.
+  Đi kèm hai điều đáng nhớ: `/api/listings` **không nhận `adults`** trong khi `/api/quote`
+  **có**, nên cùng một chuỗi truy vấn cho hai con số khác nhau; và bảng tổng của
+  `acceptance.py` đóng cứng `/10`, thêm một kịch bản là nó in "11/10". Giờ tổng tự đếm.
+- **Phép soát của chính mình cũng phải kiểm là nó có soát gì không.** Lượt đầu đối chiếu
+  giá ba mặt dùng nhầm tên trường (`totalForStay` thay vì `stayTotal`, và trang chi tiết
+  không có khoá `quote`), nên hai trong ba giá trị là `None`, bị lọc đi, và script báo
+  **"223 tin · 0 lệch"** trong khi thật ra nó **so một con số với chính nó**. Cùng hình
+  dạng với `bookable()` gọi dry-run rồi bỏ qua kết quả. Sau khi bắt buộc đủ cả ba nguồn
+  mới đếm thì ra ngay 90 chỗ lệch. Một phép soát ra 0 thì hỏi trước: nó đã thật sự so
+  được bao nhiêu thứ?
 
 ---
 
@@ -853,7 +875,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ```bash
 dotnet test tests/StayHost.Domain.Tests            # 1223 test nghiệp vụ
 dotnet test tests/StayHost.Web.Tests               # 7 test cổng thanh toán (GatewayReply)
-python scripts/acceptance.py                       # 10 tình huống của docs/04
+python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13
 python scripts/doc09_acceptance.py                 # 19 kịch bản của docs/09
 python scripts/unwired_acceptance.py               # 10 quy tắc từng không ai gọi (PLAN §9.6)
