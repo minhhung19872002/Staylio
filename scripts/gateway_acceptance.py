@@ -141,7 +141,7 @@ def ledger_total():
 # not fight over the same nights.
 RUN_SHIFT = int(datetime.datetime.now().timestamp() // 5400 % 90)
 
-passed, failed = [], []
+passed, failed, skipped = [], [], []
 
 
 def opener():
@@ -175,6 +175,21 @@ def call(op, path, body=None, m=None, follow=True):
 def check(name, ok, detail=""):
     (passed if ok else failed).append(name)
     print(("  PASS  " if ok else "  FAIL  ") + name + (" — " + detail if detail else ""))
+
+
+def skip(name, why):
+    """A scenario that was never attempted.
+
+    Sections 4 and 5 both hang off a live ZaloPay order and were guarded by a
+    bare "if ... and zalo_ref:" with no else. When ZaloPay would not open one,
+    the two sections printed their headings, ran nothing, and the tally still
+    read like a full run - six assertions short, silently. A suite that quietly
+    covers less is worse than one that fails, because the number stays
+    plausible. Skips are named here and counted in the summary.
+    """
+    skipped.append(name)
+    print("  SKIP  " + name + " - " + why)
+
 
 
 def future(days):
@@ -379,7 +394,14 @@ if momo_ref:
 # asks ZaloPay. A round trip that answers "still deciding" proves the query call
 # is real, signed correctly and understood.
 print("\n4. Sàn tự hỏi lại cổng thay vì tin trình duyệt")
-if live.get("zalopay") and zalo_ref:
+if not (live.get("zalopay") and zalo_ref):
+    why = ("ZaloPay chua bat" if not live.get("zalopay")
+           else "khong mo duoc don ZaloPay o muc 2")
+    for _n in ("Khach duoc dua ve trang ket qua cua san",
+               "Cong tra loi chua xong nen chua xac nhan",
+               "Don van chua duoc xac nhan"):
+        skip(_n, why)
+else:
     st, page = call(anon, "/api/payments/zalopay/return?ref=%s" % zalo_ref)
     landed = (page or {}).get("url", "")
     check("Khách được đưa về trang kết quả của sàn", st == 200 and "ket-qua" in landed,
@@ -400,7 +422,14 @@ if live.get("zalopay") and zalo_ref:
 # the signature check, the amount check, the ledger, the confirmation — is the
 # production path, untouched.
 print("\n5. Callback đúng chữ ký thì xác nhận đơn, và gọi lại lần nữa không ghi sổ hai lần")
-if live.get("zalopay") and zalo_ref:
+if not (live.get("zalopay") and zalo_ref):
+    why = ("ZaloPay chua bat" if not live.get("zalopay")
+           else "khong mo duoc don ZaloPay o muc 2")
+    for _n in ("Callback ky dung thi don duoc xac nhan",
+               "So sach ghi dung mot lan",
+               "Goi lai callback khong ghi so lan hai"):
+        skip(_n, why)
+else:
     key2 = os.environ.get("ZALOPAY_KEY2") or dev_key2()
 
     if not key2:
@@ -491,8 +520,12 @@ print("\n6. Sổ sách vẫn cân")
 total = ledger_total()
 check("Tổng nợ trừ có bằng 0", total == 0, str(total))
 
-print("\n%d đạt · %d hỏng" % (len(passed), len(failed)))
+print("\n%d dat - %d hong - %d bo qua" % (len(passed), len(failed), len(skipped)))
 if failed:
     for f in failed:
         print("  hỏng: " + f)
+if skipped:
+    # Named, so the total can never shrink without saying so.
+    for _f in skipped:
+        print("  bo qua: " + _f)
 sys.exit(1 if failed else 0)

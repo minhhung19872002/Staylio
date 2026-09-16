@@ -64,7 +64,7 @@ public class ZaloPayProvider(
         {
             using var client = http.CreateClient("psp");
             var res = await client.PostAsync($"{Cfg.Endpoint}/create", new FormUrlEncodedContent(form), ct);
-            var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var json = await GatewayReply.JsonAsync(res, "ZaloPay", ct);
 
             var returnCode = Number(json, "return_code");
             var url = Text(json, "order_url");
@@ -139,7 +139,7 @@ public class ZaloPayProvider(
         {
             using var client = http.CreateClient("psp");
             var res = await client.PostAsync($"{Cfg.Endpoint}/query", new FormUrlEncodedContent(form), ct);
-            var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var json = await GatewayReply.JsonAsync(res, "ZaloPay", ct);
 
             var returnCode = Number(json, "return_code");
             var amount = Number(json, "amount");
@@ -197,7 +197,7 @@ public class ZaloPayProvider(
                 using var client = http.CreateClient("psp");
                 var res = await client.PostAsync($"{Cfg.Endpoint}/refund",
                     new FormUrlEncodedContent(form), ct);
-                var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+                var json = await GatewayReply.JsonAsync(res, "ZaloPay", ct);
                 var code = Number(json, "return_code");
 
                 log.LogInformation("ZaloPay hoàn {Amount} cho {Ref}: mã {Code} {Message}.",

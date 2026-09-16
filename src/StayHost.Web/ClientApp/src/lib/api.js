@@ -14,13 +14,37 @@ async function request(path, options = {}) {
   const payload = text ? safeJson(text) : null;
 
   if (!res.ok) {
-    const message = payload?.message || payload?.title || `Yêu cầu thất bại (${res.status}).`;
+    const message = payload?.message || statusMessage(res.status);
     const error = new Error(message);
     error.status = res.status;
     error.payload = payload;
     throw error;
   }
   return payload;
+}
+
+/**
+ * What to show when the server did not send a sentence of its own.
+ *
+ * This used to read `payload.title`, which sounds like the server's own wording
+ * and is not: on any bare NotFound() / Unauthorized() ASP.NET answers with
+ * problem+json whose title is the RFC 9110 reason phrase — "Not Found",
+ * "Unauthorized" — in English. No controller here ever sets a title, so that
+ * branch could only ever put an English word on a Vietnamese page, and because
+ * it came first it shadowed the fallback underneath it. There are 114 bare
+ * returns able to reach it, and a guest coming back from a payment gateway was
+ * one of the places it showed.
+ *
+ * Only `message` is written for a person to read; everything else is a status.
+ */
+function statusMessage(status) {
+  if (status === 401) return 'Bạn cần đăng nhập để xem mục này.';
+  if (status === 403) return 'Bạn không có quyền với mục này.';
+  if (status === 404) return 'Không tìm thấy nội dung này.';
+  if (status === 409) return 'Thông tin vừa thay đổi. Hãy tải lại trang rồi thử lại.';
+  if (status === 429) return 'Bạn thao tác hơi nhanh. Chờ một chút rồi thử lại.';
+  if (status >= 500) return 'Hệ thống đang bận. Thử lại sau ít phút.';
+  return `Yêu cầu thất bại (${status}).`;
 }
 
 function safeJson(text) {

@@ -58,7 +58,7 @@ public class MoMoProvider(
         {
             using var client = http.CreateClient("psp");
             var res = await client.PostAsJsonAsync($"{Cfg.Endpoint}/create", body, ct);
-            var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var json = await GatewayReply.JsonAsync(res, "MoMo", ct);
 
             var resultCode = Number(json, "resultCode");
             var payUrl = Text(json, "payUrl");
@@ -134,7 +134,7 @@ public class MoMoProvider(
         {
             using var client = http.CreateClient("psp");
             var res = await client.PostAsJsonAsync($"{Cfg.Endpoint}/query", body, ct);
-            var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var json = await GatewayReply.JsonAsync(res, "MoMo", ct);
 
             var code = Number(json, "resultCode");
             var amount = Number(json, "amount");
@@ -195,7 +195,7 @@ public class MoMoProvider(
             {
                 using var client = http.CreateClient("psp");
                 var res = await client.PostAsJsonAsync($"{Cfg.Endpoint}/refund", body, ct);
-                var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+                var json = await GatewayReply.JsonAsync(res, "MoMo", ct);
                 var code = Number(json, "resultCode");
 
                 log.LogInformation("MoMo hoàn {Amount} cho {Ref}: mã {Code} {Message}.",

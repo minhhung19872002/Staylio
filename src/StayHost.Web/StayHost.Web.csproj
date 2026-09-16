@@ -37,4 +37,10 @@
     <UserSecretsId>stayhost-web-psp</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- GatewayReply decides whether a gateway's answer is about the money at
+         all, which is worth locking down in tests without making it public. -->
+    <InternalsVisibleTo Include="StayHost.Web.Tests" />
+  </ItemGroup>
+
 </Project>

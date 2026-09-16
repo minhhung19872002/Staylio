@@ -206,7 +206,7 @@ public class VnPayProvider(
         {
             using var client = http.CreateClient("psp");
             var res = await client.PostAsJsonAsync(Cfg.ApiUrl, body, ct);
-            var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var json = await GatewayReply.JsonAsync(res, "VNPay", ct);
 
             var code = Text(json, "vnp_ResponseCode");
             var status = Text(json, "vnp_TransactionStatus");
@@ -283,7 +283,7 @@ public class VnPayProvider(
             {
                 using var client = http.CreateClient("psp");
                 var res = await client.PostAsJsonAsync(Cfg.ApiUrl, body, ct);
-                var json = await res.Content.ReadFromJsonAsync<JsonElement>(ct);
+                var json = await GatewayReply.JsonAsync(res, "VNPay", ct);
 
                 var code = Text(json, "vnp_ResponseCode");
                 var status = Text(json, "vnp_TransactionStatus");

@@ -269,6 +269,14 @@ public class OnePayProvider(
             var res = await client.PostAsync(endpoint, new FormUrlEncodedContent(signed), ct);
             var body = await res.Content.ReadAsStringAsync(ct);
 
+            // ParseQuery never throws, so an error page comes back as a
+            // dictionary of nonsense with no vpc_TxnResponseCode in it rather
+            // than as a failure. The status is the only thing that tells the
+            // two apart, and "not knowing" has to stay not knowing.
+            if (!res.IsSuccessStatusCode)
+                throw new GatewayCallException(
+                    $"OnePay trả HTTP {(int)res.StatusCode} ({res.ReasonPhrase}): {GatewayReply.Snippet(body)}");
+
             return Microsoft.AspNetCore.WebUtilities.QueryHelpers
                 .ParseQuery(body.StartsWith('?') ? body : "?" + body)
                 .ToDictionary(p => p.Key, p => p.Value.ToString());

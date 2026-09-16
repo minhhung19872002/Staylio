@@ -71,7 +71,8 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (03/09/2026).** 1223 test nghiệp vụ · **30/30** kịch bản cổng thanh
+**Toàn bộ xanh (16/09/2026).** 1223 test nghiệp vụ + **7 test cổng thanh toán**
+(`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
 đời) · **34/34** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
 **14/14** một giao dịch VNPay trả xong trên chính trang của họ, qua trình duyệt thật
@@ -109,6 +110,18 @@ Sổ sách lệch 0. Cả 203 mã của `docs/01` đã làm xong (`docs/PLAN.md 
 > Trong lúc truy đã sửa **hai lỗi thật của chính script**: `bookable()` gọi dry-run rồi
 > **bỏ qua kết quả** (nên hứa những tin đã bị đặt), và chỉ thử **một khung ngày**. Giờ nó
 > đọc kết quả dry-run (đạt là **201**, không phải 200) và thử tám khung ngày.
+
+> **OnePay: `7 đạt · 0 hỏng · 11 bỏ qua` (16/09/2026), và đó là đúng.** Sandbox MTF
+> của họ **đã bật 3-D Secure 2** cho thẻ quốc tế, và nó chạy **không có bước nào cho
+> người dùng**: `mpgs3ds2.op` → `mpgs3ds2-authenticate-payer.op` chỉ có input ẩn
+> (`threeDSMethodData`, `sessionId`, `response.gatewayRecommendation`), rồi trang
+> "Xác thực giao dịch không thành công". Thẻ `4005550000000001` vì thế **không còn trả
+> được nữa** — `payment_sessions.ResponseCode` trả `F` (3DS hỏng) hoặc `7`. Không có ô
+> nào để script điền; muốn chạy lại phải xin OnePay một thẻ miễn 3DS hoặc tắt 3DS cho
+> merchant demo. **Sàn xử lý đúng**: đơn không được xác nhận, phiên không ghi là đã trả,
+> không giữ lại gì về thẻ bị từ chối, sổ lệch 0 — ba điều đó giờ là khẳng định thật
+> trong bộ nghiệm thu. Trước 16/09 bộ này báo **8 kịch bản hỏng**, đọc y như lỗi sản
+> phẩm, cho một cái thẻ mà chính cổng từ chối.
 
 ### Nền
 
@@ -676,6 +689,48 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   `Ledger.RecoverFromHost`/`RecoverFromCoHost` được gọi. Ghi thêm một cái lúc phát
   sinh nợ là đếm hai lần, và sổ hết khớp với thứ ngân hàng đã làm. Chargeback thua
   và phí của đơn trả tại nơi ở đều đã có sẵn hình dạng này.
+- **Một trang lỗi hợp lệ về mặt JSON đọc thành "khách chưa trả tiền".** Cả ba provider
+  đều bọc lời gọi trong `catch` rồi hạ xuống *chưa biết* — đúng tinh thần `docs/07 §5`.
+  Nhưng lưới ấy **chỉ bung khi parse hỏng**, nên một lỗi HTTP có thân đúng dạng JSON
+  (`{"message":"Not Found"}` là kiểu rất thường của proxy và API gateway) lọt qua sạch
+  sẽ, mọi trường đọc ra rỗng, rồi rơi xuống đáy `QueryAsync` thành
+  **`PaymentSessionStatus.Failed`**. Đo được trước khi vá: **404 kèm thân JSON** và
+  **502 từ proxy** đều ra `Failed`; hai ca HTML thoát nạn chỉ vì parser ném. Mà `Failed`
+  không phải một từ trung tính — `PspSweeper` là một trong ba đường chốt một lượt thanh
+  toán, nên nó quyết định giữa "hỏi lại phút sau" và "lượt này hỏng", cho một người có
+  thể đã trả tiền thật. Giờ `GatewayReply.JsonAsync` kiểm status trước khi đọc thân, và
+  `OnePayProvider.AskAsync` cũng vậy — `ParseQuery` **không bao giờ ném**, nên trang HTML
+  ở đó còn tệ hơn: nó trả về một dictionary rác trông như một câu trả lời.
+  Đi kèm là nửa thứ hai: `ReadFromJsonAsync` trên trang lỗi chỉ nói
+  *"'<' is an invalid start of a value"* — không nêu mã trạng thái, không nêu cổng nào,
+  đúng hình dạng đã làm mất một ngày với cái 403 vì thiếu `User-Agent` của VNPay.
+- **`payload.title` không phải chữ của sàn, mà là chữ tiếng Anh của ASP.NET.** `api.js`
+  mở đầu bằng lời hứa "failures surface the server's Vietnamese message", rồi đọc
+  `payload?.message || payload?.title || 'Yêu cầu thất bại…'`. Trên **mọi** `NotFound()`
+  trần, ASP.NET đáp `application/problem+json` với `"title":"Not Found"` — reason phrase
+  của RFC 9110. Không controller nào ở đây tự đặt `title` bao giờ, nên nhánh ấy **chỉ có
+  thể** đặt một từ tiếng Anh lên trang tiếng Việt, và vì đứng trước nên nó **che luôn câu
+  dự phòng ngay dưới**. Có **114 chỗ** trả lỗi trần đi tới được nó. Lộ ra ở chỗ đắt nhất:
+  khách vừa rời cổng thanh toán về, trang kết quả ghi *"Chưa thanh toán được · Không đọc
+  được đơn · **Not Found**"*. `i18n_audit.py` không bắt được vì nó chỉ soát literal trong
+  `t()`. Giờ chỉ `message` — thứ viết cho người đọc — được dùng, còn lại là câu tiếng Việt
+  theo mã trạng thái.
+- **Bộ nghiệm thu bỏ qua kịch bản trong im lặng thì tệ hơn bộ báo hỏng.** Mục 4 và 5 của
+  `gateway_acceptance.py` đều treo vào một đơn ZaloPay mở được, canh bằng
+  `if live.get("zalopay") and zalo_ref:` **không có `else`**. Hôm sandbox ZaloPay chết,
+  hai mục in tiêu đề, chạy **không một khẳng định nào**, và tổng vẫn đọc như một lượt
+  chạy đủ — thiếu **sáu** khẳng định mà con số vẫn hợp lý. Giờ có `skip()`: mỗi kịch bản
+  không chạy được đều **được gọi tên** và đếm riêng, nên tổng không thể tụt mà không nói.
+  Cùng một phép ấy áp cho `onepay_acceptance.py`.
+- **Phân biệt "cổng từ chối" với "sàn ghi sót" phải hỏi cổng, đừng đọc trình duyệt.**
+  Lượt đầu định bắt lỗi 3DS của OnePay bằng URL trang lỗi; chuỗi redirect của họ **đổi
+  theo từng lượt**, trang lỗi lại tự chuyển tiếp sau `fail_delay` giây nên biến mất trước
+  khi kịp đọc `page.url`, và `AgainLink` cũng trỏ về chính host của sàn nên vòng chờ
+  thoát sớm với một địa chỉ trông như đã quay về. Tín hiệu chắc chắn nằm ở
+  **`payment_sessions.ResponseCode`** — phán quyết của chính cổng — và phải **chờ** nó,
+  vì câu trả lời có thể tới bằng vòng quét `docs/07 §5` chứ không theo chân khách. Cột đó
+  tên là `ResponseCode`, **không phải `Code`**: đoán sai tên cột thì cờ luôn luôn tắt và
+  bộ nghiệm thu lặng lẽ chạy nhánh sai.
 
 ---
 
@@ -797,6 +852,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 
 ```bash
 dotnet test tests/StayHost.Domain.Tests            # 1223 test nghiệp vụ
+dotnet test tests/StayHost.Web.Tests               # 7 test cổng thanh toán (GatewayReply)
 python scripts/acceptance.py                       # 10 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13
 python scripts/doc09_acceptance.py                 # 19 kịch bản của docs/09
