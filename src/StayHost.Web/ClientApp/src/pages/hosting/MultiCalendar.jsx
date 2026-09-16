@@ -16,7 +16,7 @@ export function MultiCalendar() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api.multiCalendar({ from, days: 45 }).then(setData).catch(e => setError(e.message));
+    api.multiCalendar({ from, days: 45 }).then(setData).catch(e => setError(t(e.message)));
   }, [from]);
 
   const shift = days => {

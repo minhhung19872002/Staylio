@@ -39,7 +39,7 @@ export function Transfer() {
         // into pixels needs nothing from the server.
         setImage(await QRCode.toDataURL(d.payload, { margin: 1, width: 320 }));
       })
-      .catch(err => alive && setError(err.message));
+      .catch(err => alive && setError(t(err.message)));
 
     return () => { alive = false; };
   }, [reference]);

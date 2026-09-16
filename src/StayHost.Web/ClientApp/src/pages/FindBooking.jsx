@@ -30,7 +30,7 @@ export function FindBooking() {
     try {
       setFound(await api.lookupBooking(f.reference.value, f.email.value));
     } catch (err) {
-      setError(err.message);
+      setError(t(err.message));
       setFound(null);
     } finally {
       setBusy(false);

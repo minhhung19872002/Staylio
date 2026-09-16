@@ -857,7 +857,7 @@ export function SavedCardsPanel() {
     setBusy(true);
     setError(null);
     try { setCards(await fn()); }
-    catch (err) { setError(err.message); }
+    catch (err) { setError(t(err.message)); }
     finally { setBusy(false); }
   };
 
@@ -877,7 +877,7 @@ export function SavedCardsPanel() {
       setCards(await api.addCard(body));
       setAdding(false);
       toast('Đã lưu thẻ.');
-    } catch (err) { setError(err.message); }
+    } catch (err) { setError(t(err.message)); }
     finally { setBusy(false); }
   };
 

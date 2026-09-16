@@ -44,7 +44,7 @@ export function PaymentResult() {
         if (b.status !== 'PendingPayment') { setAsking(false); return; }
       } catch (err) {
         if (!alive) return;
-        setError(err.message);
+        setError(t(err.message));
         setAsking(false);
         return;
       }

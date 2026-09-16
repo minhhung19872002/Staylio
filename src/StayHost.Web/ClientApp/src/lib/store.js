@@ -296,12 +296,27 @@ export function resetFilters() {
 let toastId = 0;
 export const toasts = { items: [] };
 
+/**
+ * The one place every transient message passes through, and so the only place
+ * worth translating them.
+ *
+ * Two kinds arrive here and neither went through the dictionary before: 177
+ * calls pass `err.message`, which the server composes in Vietnamese, and 72
+ * more pass a Vietnamese literal written at the call site. Both reached a
+ * reader of one of the other seven languages exactly as typed. Wrapping them
+ * here covers both without touching 249 call sites, and t() hands back a string
+ * it has no entry for untouched — so a message nobody has translated yet still
+ * reads the way it does today.
+ */
 export function toast(message) {
   const id = ++toastId;
-  toasts.items = [...toasts.items, { id, message }];
+  toasts.items = [...toasts.items, { id, message: t(message) }];
   notify();
   setTimeout(() => {
-    toasts.items = toasts.items.filter(t => t.id !== id);
+    // Named `item`, not `t`: that is the translate function, and a parameter
+    // shadowing it makes any t('…') in the same scope silently wrong rather
+    // than an error — the trap CLAUDE.md §4 records twice.
+    toasts.items = toasts.items.filter(item => item.id !== id);
     notify();
   }, 2800);
 }

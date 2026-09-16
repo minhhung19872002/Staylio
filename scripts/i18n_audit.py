@@ -28,6 +28,11 @@ KEY = re.compile(r"^\s*('((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\")\s*:", re.M)
 CALL = re.compile(r"\bt\(\s*('((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\")")
 NUMBERS = re.compile(r'\d[\d.,]*')
 
+# toast('…') — the one call that translates whatever it is handed (store.js), so
+# a literal written there is as much UI text as one inside t().
+TOAST = re.compile(r"""toast\(\s*(['"])(.*?)\1\s*\)""")
+VIETNAMESE = re.compile('[À-ỹ]')
+
 # The same in every language, so no entry is wanted or missing.
 IGNORED = {'…'}
 
@@ -64,6 +69,28 @@ def main():
             continue
         missing[lit] = sorted(where)
 
+    # Text handed to toast() rather than to t(). toast() translates what it is
+    # given (store.js), so a literal written at a call site is UI text like any
+    # other — it just needs an entry before a reader of another language sees
+    # anything but Vietnamese. Counted, not failed: the wiring landed first and
+    # the entries are their own piece of work, and a debt nobody measures is a
+    # debt nobody pays.
+    toasted = {}
+    for root, dirs, files in os.walk(SRC):
+        dirs[:] = [d for d in dirs if d != 'i18n']
+        for name in files:
+            if not name.endswith(('.jsx', '.js')):
+                continue
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, SRC).replace(os.sep, '/')
+            for m in TOAST.finditer(io.open(path, encoding='utf-8').read()):
+                lit = m.group(2)
+                if len(lit) < 4 or not VIETNAMESE.search(lit):
+                    continue
+                if lit in known or NUMBERS.sub('{}', lit) in known:
+                    continue
+                toasted.setdefault(lit, set()).add(rel)
+
     # Every language must answer the same set, or switching language turns some of
     # the page back to Vietnamese.
     counts = {}
@@ -75,6 +102,7 @@ def main():
     print('t() literals used : %d' % len(used))
     print('dictionary keys   : %s' % ', '.join('%s=%d' % (n[6:-3], c) for n, c in counts.items()))
     print('missing keys      : %d' % len(missing))
+    print('chu qua toast() chua co khoa : %d' % len(toasted))
 
     for lit in sorted(missing):
         print('  %-70s | %s' % (lit[:70], ', '.join(missing[lit])[:48]))

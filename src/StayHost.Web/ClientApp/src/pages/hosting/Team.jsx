@@ -48,7 +48,7 @@ export function Team() {
   const [board, setBoard] = useState(null);
   const [error, setError] = useState(null);
 
-  const reload = () => api.coHosts().then(setBoard).catch(e => setError(e.message));
+  const reload = () => api.coHosts().then(setBoard).catch(e => setError(t(e.message)));
   useEffect(() => { reload(); }, []);
 
   if (error) return <div className="empty-state" style={{ marginTop: 24 }}><h3>{error}</h3></div>;

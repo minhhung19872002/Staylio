@@ -732,6 +732,20 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   được đơn · **Not Found**"*. `i18n_audit.py` không bắt được vì nó chỉ soát literal trong
   `t()`. Giờ chỉ `message` — thứ viết cho người đọc — được dùng, còn lại là câu tiếng Việt
   theo mã trạng thái.
+- **`toast()` là cửa duy nhất của mọi thông báo thoáng qua, và không cái nào đi qua từ
+  điển.** 177 lời gọi truyền `err.message` — chữ do máy chủ soạn, bằng tiếng Việt — và
+  77 lời gọi nữa truyền thẳng một chuỗi tiếng Việt viết tại chỗ. Người đọc bảy thứ
+  tiếng còn lại nhận đúng nguyên văn tiếng Việt. `i18n_audit.py` không thấy, vì nó chỉ
+  soát literal nằm trong `t()`. Sửa ở **một chỗ**: `toast()` bọc `t()` — 249 chỗ gọi
+  không phải đụng tới, và `t()` trả nguyên chuỗi khi chưa có khoá nên không gì hỏng.
+  Nó cũng nhấc số ra khỏi câu (`"… {} …"`) nên một khoá phủ được mọi giá trị máy chủ
+  gửi. Kiểm bằng trình duyệt thật: cùng một toast ra *"Bản demo…"* ở tiếng Việt và
+  *"Demo only…"* ở tiếng Anh.
+  **Nhưng đường ống không phải nội dung.** Trong 77 chuỗi ấy chỉ **5** có khoá, nên
+  72 cái còn lại vẫn ra tiếng Việt cho tới khi có người dịch. Audit giờ in riêng con số
+  đó — không cho fail, vì hợp đồng "missing keys phải ra 0" là chuyện khác — để món nợ
+  còn đo được thay vì chìm đi. Chỗ dễ sai ở đây: chính trong `toast()` có
+  `filter(t => …)`, một tham số tên `t` che mất hàm dịch; đã đổi thành `item`.
 - **Bộ nghiệm thu bỏ qua kịch bản trong im lặng thì tệ hơn bộ báo hỏng.** Mục 4 và 5 của
   `gateway_acceptance.py` đều treo vào một đơn ZaloPay mở được, canh bằng
   `if live.get("zalopay") and zalo_ref:` **không có `else`**. Hôm sandbox ZaloPay chết,
@@ -939,7 +953,8 @@ python scripts/giftcard_acceptance.py              # 8 kịch bản TC-08: thẻ
 python scripts/seo_acceptance.py                   # 10 kịch bản SEO: mã trạng thái, thẻ chia sẻ,
                                                    # sitemap, và liên kết thật vào cả ba dòng
                                                    # (kịch bản 10 cần playwright)
-python scripts/i18n_audit.py                       # khoá dịch còn thiếu (phải ra 0)
+python scripts/i18n_audit.py                       # khoá dịch còn thiếu (phải ra 0), kèm số chữ
+                                                   # đi qua toast() chưa có khoá
 cd src/StayHost.Web/ClientApp && npm run build && npx oxlint src
 
 # Sổ sách phải luôn cân bằng: kết quả duy nhất chấp nhận được là 0

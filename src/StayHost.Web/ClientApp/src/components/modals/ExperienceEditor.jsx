@@ -235,7 +235,7 @@ export function ExperienceEditor() {
       setForm(f => ({ ...f, id: saved.id }));
       return saved;
     } catch (err) {
-      setError(err.message);
+      setError(t(err.message));
       return null;
     } finally {
       setSaving(false);

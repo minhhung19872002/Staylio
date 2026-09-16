@@ -13,7 +13,7 @@ export function Today() {
   const [board, setBoard] = useState(null);
   const [error, setError] = useState(null);
 
-  const load = () => api.hostToday().then(setBoard).catch(e => setError(e.message));
+  const load = () => api.hostToday().then(setBoard).catch(e => setError(t(e.message)));
   useEffect(() => { load(); }, []);
 
   if (error) return <div className="empty-state" style={{ marginTop: 24 }}><h3>{error}</h3></div>;
