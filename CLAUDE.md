@@ -479,6 +479,21 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   — regex khớp `Runner.Listener` nhưng dòng lệnh chứa `[R]unner.Listener` thì không khớp.
   Kiểm chứng bằng cách **giết tiến trình thật rồi xem lưới có bung không**, đừng đọc dòng
   cron rồi tin.
+- **Runner "online" mà job vẫn nằm `queued`: listener sống nhưng kẹt, và cron không
+  cứu được.** Ngày 16/09 hai job đầu của CI/CD xanh, job `Deploy to VPS` treo
+  `queued` 15 phút trong khi `gh api .../actions/runners` báo `status: online,
+  busy: false` và `pgrep -f "[R]unner.Listener"` thấy tiến trình. Thứ sai nằm trong
+  `_diag/Runner_*.log`: `BrokerServer` rụng kết nối liên tục
+  (`SocketException (125): Operation canceled`) rồi backoff — nó vẫn gửi được
+  heartbeat nên GitHub thấy "online", nhưng long-poll nhận việc thì không bao giờ
+  thành. Dấu hiệu chắc nhất là **không có `_diag/Worker_*.log` mới**: worker chỉ sinh
+  ra khi job thật sự được nhận.
+  Dòng cron `*/5` chỉ khởi động lại khi `pgrep` **không thấy gì** — nó bắt được
+  runner *chết*, không bắt được runner *kẹt*, nên lưới an toàn nằm im. Cách chữa là
+  giết rồi chạy lại: `kill <PID>` — **giết theo PID, đừng `pkill -f`**, vì lệnh
+  `pkill` gõ qua SSH tự khớp chính nó và cắt luôn phiên của mình (cùng cái bẫy đã ghi
+  ở trên) — rồi `cd ~/actions-runner && setsid ./run.sh >> run-cron.log 2>&1 &`,
+  đúng câu cron đang dùng. Job queued được nhận ngay sau đó và deploy chạy bình thường.
 - **Mật khẩu seed + 2FA tắt + repo công khai = trang quản trị bỏ ngỏ.** Ngày 26/08
   phát hiện `admin@stayhost.vn` / `stayhost123` **đăng nhập được vào prod**: `README.md`
   in nguyên bảng đó trên một repo PUBLIC, còn `ADMIN_REQUIRE_2FA=false` — ngoại lệ khẩn
