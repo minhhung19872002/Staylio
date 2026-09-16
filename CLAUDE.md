@@ -97,7 +97,8 @@ thu nhập cho người đồng quản lý) ·
 **7/7** kịch bản `QT-06`/`TC-12` của `scripts/fx_acceptance.py` (tỉ giá là cấu hình) ·
 **8/8** kịch bản `docs/02 F1` của `scripts/settings_acceptance.py` (trang cài đặt + lịch sử trả) ·
 **8/8** kịch bản `docs/02 G7` của `scripts/hostreport_acceptance.py` (báo cáo chủ nhà) ·
-**8/8** kịch bản `TC-08` của `scripts/giftcard_acceptance.py` (thẻ quà tặng phải có người trả tiền) ·
+**8/8** kịch bản `TC-08` của `scripts/giftcard_acceptance.py` (thẻ quà tặng phải có
+người trả tiền — xanh cả khi ô thẻ nối cổng thật lẫn khi chạy bản giả lập) ·
 **10/10** kịch bản SEO của `scripts/seo_acceptance.py` (`docs/PLAN.md §9.12` — mã
 trạng thái, thẻ chia sẻ, sitemap, và liên kết thật vào cả ba dòng sản phẩm; đây là
 bộ duy nhất chạm tới `ShellSeo.cs`/`PageExistence.cs`, hai file quyết định mã trạng
@@ -738,6 +739,25 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   chạy đủ — thiếu **sáu** khẳng định mà con số vẫn hợp lý. Giờ có `skip()`: mỗi kịch bản
   không chạy được đều **được gọi tên** và đếm riêng, nên tổng không thể tụt mà không nói.
   Cùng một phép ấy áp cho `onepay_acceptance.py`.
+- **Bộ nghiệm thu nào còn gọi thẳng `/pay` bằng thẻ thử là bộ sẽ hỏng khi bật cổng
+  thật.** `_gateway.py` sinh ra chính vì chuyện này, nhưng
+  `giftcard_acceptance.py` (05/09) vẫn mua thẻ quà tặng bằng
+  `method="card", cardLast4="4242"/"0000"` — hai con số **chỉ có nghĩa với bản giả
+  lập**. Trên máy có khoá VNPay trong `user-secrets`, ô thẻ đi ra cổng thật: lượt mua
+  trả về `AwaitingPayment` kèm địa chỉ chuyển hướng, nên ba kịch bản "thẻ đã trả tiền"
+  báo hỏng cho một sản phẩm hoàn toàn đúng. **4/8 — và `origin/main` chưa có commit nào
+  của phiên này cũng ra 4/8**, đó là cách duy nhất để biết chắc mình không gây ra nó.
+  Giờ `_gateway.settle()` tách khỏi `pay()` (booking không phải thứ duy nhất rời sàn
+  đi ra cổng — thẻ quà tặng cũng vậy, và cùng chốt bằng một callback có chữ ký trên
+  cùng một route), còn suite tự nhận ra mình đang ở cấu hình nào. Xanh **8/8 ở cả hai**,
+  và dòng kết quả nói rõ "qua cổng thật" hay "qua bản giả lập" — chạy đúng nhánh nào
+  là thông tin, không phải chi tiết vặt.
+  Kèm theo: **một cổng từ chối không phải là một quy tắc bị vi phạm.** Sandbox MoMo
+  thỉnh thoảng trả `resultCode 98` vài phút liền; nó đã làm em chẩn đoán nhầm **hai
+  lần** trong một phiên và từng khiến `gateway_acceptance` ra 23/5 rồi 30/30 ngay lượt
+  sau. Ba kịch bản cần một ví mở được đơn giờ thử lại rồi **bỏ qua có nêu tên** thay vì
+  báo hỏng — điều đang kiểm là "thẻ chưa trả tiền thì vô giá trị", không phải "MoMo có
+  sống không".
 - **Phân biệt "cổng từ chối" với "sàn ghi sót" phải hỏi cổng, đừng đọc trình duyệt.**
   Lượt đầu định bắt lỗi 3DS của OnePay bằng URL trang lỗi; chuỗi redirect của họ **đổi
   theo từng lượt**, trang lỗi lại tự chuyển tiếp sau `fail_delay` giây nên biến mất trước

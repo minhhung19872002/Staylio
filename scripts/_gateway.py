@@ -58,6 +58,48 @@ def vnpay_sign(fields, secret):
     return hmac.new(secret.encode(), query.encode(), hashlib.sha512).hexdigest()
 
 
+def settle(call, op, order_ref, amount, response_code="00"):
+    """Deliver the IPN for an order already handed over to VNPay.
+
+    Split out of `pay()` because a booking is not the only thing that leaves for
+    a gateway: a gift card does too (docs/01 TC-08), and it is settled by the
+    same signed callback on the same route. Returns (ok, note).
+
+    `response_code` is VNPay's own table. "00" is money that arrived; anything
+    else is the gateway refusing, which - once a real gateway owns the card form
+    - is the only way a script can still exercise a refusal at all. The card
+    ending 0000 only ever meant something to the stand-in.
+    """
+    tmn, secret = vnpay_keys()
+    if not secret or not order_ref:
+        return False, "Không có khoá VNPay để ký thay cổng."
+
+    fields = {
+        "vnp_Amount": str(int(round(float(amount))) * 100),
+        "vnp_BankCode": "NCB",
+        "vnp_BankTranNo": "VNP" + str(order_ref)[-8:],
+        "vnp_CardType": "ATM",
+        "vnp_OrderInfo": "Staylio",
+        "vnp_PayDate": str(order_ref)[:12] + "00",
+        "vnp_ResponseCode": response_code,
+        "vnp_TmnCode": tmn,
+        "vnp_TransactionNo": "14" + str(order_ref)[-6:],
+        "vnp_TransactionStatus": response_code,
+        "vnp_TxnRef": str(order_ref),
+    }
+    fields["vnp_SecureHash"] = vnpay_sign(fields, secret)
+
+    _, ipn = call(op, "/api/payments/vnpay/ipn?" + urllib.parse.urlencode(fields))
+    code = (ipn or {}).get("RspCode") if isinstance(ipn, dict) else None
+
+    # 00 recorded it, 02 says it was already recorded. A refusal is delivered
+    # just as successfully as a payment - the platform accepting the news that
+    # the money did not arrive is the whole point of the scenario.
+    if code in ("00", "02"):
+        return True, code
+    return False, "IPN trả %s: %s" % (code, ipn)
+
+
 def pay(call, op, booking_id, body=None, amount=None):
     """Pay a held booking, going through the gateway if one is wired.
 
@@ -73,7 +115,7 @@ def pay(call, op, booking_id, body=None, amount=None):
         return st, paid
 
     order_ref = paid.get("gatewayOrderRef")
-    tmn, secret = vnpay_keys()
+    _, secret = vnpay_keys()
 
     if "vnpayment.vn" not in redirect or not secret or not order_ref:
         # Some other gateway, or no key to sign with. Say so rather than let the
@@ -85,28 +127,9 @@ def pay(call, op, booking_id, body=None, amount=None):
     # one has to say what it paid.
     due = amount if amount is not None else paid.get("total")
 
-    fields = {
-        "vnp_Amount": str(int(round(float(due))) * 100),
-        "vnp_BankCode": "NCB",
-        "vnp_BankTranNo": "VNP" + str(order_ref)[-8:],
-        "vnp_CardType": "ATM",
-        "vnp_OrderInfo": "Staylio",
-        "vnp_PayDate": str(order_ref)[:12] + "00",
-        "vnp_ResponseCode": "00",
-        "vnp_TmnCode": tmn,
-        "vnp_TransactionNo": "14" + str(order_ref)[-6:],
-        "vnp_TransactionStatus": "00",
-        "vnp_TxnRef": str(order_ref),
-    }
-    fields["vnp_SecureHash"] = vnpay_sign(fields, secret)
-
-    ipn_status, ipn = call(op, "/api/payments/vnpay/ipn?" + urllib.parse.urlencode(fields))
-
-    # VNPay's own table: 00 recorded it, 02 says it was already recorded.
-    code = (ipn or {}).get("RspCode") if isinstance(ipn, dict) else None
-    if code not in ("00", "02"):
-        return st, dict(paid, gatewaySettled=False,
-                        gatewayNote="IPN trả %s: %s" % (code, ipn))
+    settled, note = settle(call, op, order_ref, due)
+    if not settled:
+        return st, dict(paid, gatewaySettled=False, gatewayNote=note)
 
     # The IPN above was signed here, not by VNPay: they never saw this payment
     # and have no transaction under that reference. Leaving the session row would
