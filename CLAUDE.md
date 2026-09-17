@@ -71,7 +71,7 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (17/09/2026).** 1327 test nghiệp vụ + **24 test tầng web**
+**Toàn bộ xanh (17/09/2026).** 1331 test nghiệp vụ + **24 test tầng web**
 (`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
 đời) · **35/35** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
@@ -817,6 +817,13 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   cầu thì gọi lại **thiếu** nó, nên với khách sạn phép kiểm luôn trả "chọn loại
   phòng" — mọi yêu cầu đặt phòng khách sạn đều không chấp nhận được, mà không test
   nào đi qua nhánh ấy. Thêm tham số cho một hàm kiểm tra thì `grep` mọi chỗ gọi.
+- **Image Alpine chỉ có dữ liệu ICU tiếng Anh, nên `vi-VN` âm thầm thành dấu phẩy.**
+  `aspnet:9.0-alpine` + `apk add icu-libs` kéo theo **`icu-data-en`**: văn hoá
+  `vi-VN` vẫn "có", không ném gì, nhưng định dạng rơi về gốc — mọi dòng giá trên
+  prod in "980,000₫" suốt nhiều tuần trong khi máy lập trình (Windows, ICU đầy đủ)
+  in "980.000₫". Không test nào bắt được vì test chạy trên Windows. Giờ image cài
+  `icu-data-full`, và `Vnd.Format` tự đặt dấu chấm, không hỏi văn hoá. Kiểm bằng
+  `curl https://staylio.vn/api/quote?...` rồi đọc nhãn dòng giá, đừng đọc ở máy mình.
 - **Phép soát của chính mình cũng phải kiểm là nó có soát gì không.** Lượt đầu đối chiếu
   giá ba mặt dùng nhầm tên trường (`totalForStay` thay vì `stayTotal`, và trang chi tiết
   không có khoá `quote`), nên hai trong ba giá trị là `None`, bị lọc đi, và script báo
@@ -978,7 +985,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ## 6. Kiểm chứng trước khi commit
 
 ```bash
-dotnet test tests/StayHost.Domain.Tests            # 1327 test nghiệp vụ
+dotnet test tests/StayHost.Domain.Tests            # 1331 test nghiệp vụ
 dotnet test tests/StayHost.Web.Tests               # 24 test tầng web (GatewayReply, PublicNetworkOnly)
 python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13

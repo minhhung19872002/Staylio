@@ -58,9 +58,21 @@ public sealed record PriceLine(string Key, string Label, decimal Amount);
 /// </summary>
 public static class Vnd
 {
+    /// <summary>
+    /// Spelled out rather than taken from the "vi-VN" culture: the Alpine image
+    /// ships English-only ICU data, where "vi-VN" quietly falls back to commas —
+    /// so every price line on production read "980,000₫" while every developer
+    /// machine showed "980.000₫".
+    /// </summary>
+    private static readonly System.Globalization.NumberFormatInfo Dots = new()
+    {
+        NumberGroupSeparator = ".",
+        NumberDecimalSeparator = ",",
+        NegativeSign = "-"
+    };
+
     public static string Format(decimal amount) =>
-        Math.Round(amount, 0, MidpointRounding.AwayFromZero)
-            .ToString("#,##0", System.Globalization.CultureInfo.GetCultureInfo("vi-VN")) + "₫";
+        Math.Round(amount, 0, MidpointRounding.AwayFromZero).ToString("#,##0", Dots) + "₫";
 }
 
 public enum TaxMethod

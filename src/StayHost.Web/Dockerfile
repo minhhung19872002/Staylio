@@ -31,7 +31,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS runtime
 WORKDIR /app
 
 # The aspnet:9.0-alpine base already ships a non-root `app` user; reuse it.
-RUN apk add --no-cache icu-libs tzdata wget
+# icu-data-full, not the default English-only data: without it "vi-VN" falls
+# back to invariant formatting and invoices print "1,150,000".
+RUN apk add --no-cache icu-libs icu-data-full tzdata wget
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
     ASPNETCORE_HTTP_PORTS=8080 \
     TZ=Asia/Ho_Chi_Minh
