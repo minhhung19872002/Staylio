@@ -1425,6 +1425,8 @@ export default {
   "Chép liên kết": "复制链接",
   "Ảnh có đóng dấu mờ:": "照片已加水印：",
   "Xem trước hậu quả khoá": "预览封禁后果",
+  "Hết hạn chờ thanh toán": "付款期限已过",
+  "Hết hạn chờ thanh toán.": "付款期限已过。",
   "Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự": "不可抗力事件（台风、洪水、封锁令等）— 至少 8 个字符",
   "Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn": "因不可抗力取消：房客全额退款，房东获得基金补助。订单",
   "Bất khả kháng": "不可抗力",

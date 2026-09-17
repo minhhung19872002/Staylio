@@ -1425,6 +1425,8 @@ export default {
   "Chép liên kết": "Copier le lien",
   "Ảnh có đóng dấu mờ:": "Les photos sont filigranées :",
   "Xem trước hậu quả khoá": "Aperçu des conséquences du verrouillage",
+  "Hết hạn chờ thanh toán": "Délai de paiement expiré",
+  "Hết hạn chờ thanh toán.": "Le délai de paiement est écoulé.",
   "Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự": "Cas de force majeure (tempête, inondation, confinement…) — 8 caractères minimum",
   "Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn": "Annulation pour force majeure : le voyageur est remboursé intégralement et l'hôte est aidé par le fonds. Réservation",
   "Bất khả kháng": "Force majeure",

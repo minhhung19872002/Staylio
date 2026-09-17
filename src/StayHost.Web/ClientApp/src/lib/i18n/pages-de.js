@@ -1425,6 +1425,8 @@ export default {
   'Chép liên kết': 'Link kopieren',
   'Ảnh có đóng dấu mờ:': 'Die Fotos sind mit Wasserzeichen versehen:',
   'Xem trước hậu quả khoá': 'Sperrfolgen als Vorschau anzeigen',
+  "Hết hạn chờ thanh toán": "Zahlungsfrist abgelaufen",
+  "Hết hạn chờ thanh toán.": "Die Zahlungsfrist ist abgelaufen.",
   "Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự": "Ereignis höherer Gewalt (Sturm, Flut, Ausgangssperre …) – mindestens 8 Zeichen",
   "Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn": "Stornierung wegen höherer Gewalt: Der Gast erhält alles zurück, der Gastgeber Unterstützung aus dem Fonds. Buchung",
   "Bất khả kháng": "Höhere Gewalt",

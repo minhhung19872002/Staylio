@@ -588,8 +588,8 @@ public static class ExperienceRules
         ExperienceBookingStatus.Confirmed => "Đã xác nhận",
         ExperienceBookingStatus.CancelledByGuest => "Khách đã huỷ",
         ExperienceBookingStatus.CancelledWithSlot => "Suất bị huỷ",
-        ExperienceBookingStatus.AwaitingPayment => "Chờ chuyển khoản",
-        ExperienceBookingStatus.PaymentExpired => "Hết hạn chờ chuyển khoản",
+        ExperienceBookingStatus.AwaitingPayment => "Chờ thanh toán",
+        ExperienceBookingStatus.PaymentExpired => "Hết hạn chờ thanh toán",
         _ => "Đã hoàn tất"
     };
 

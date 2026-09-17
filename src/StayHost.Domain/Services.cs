@@ -665,8 +665,8 @@ public static class ServiceRules
         ServiceBookingStatus.Confirmed => "Đã xác nhận",
         ServiceBookingStatus.Completed => "Đã hoàn tất",
         ServiceBookingStatus.CancelledByGuest => "Khách đã huỷ",
-        ServiceBookingStatus.AwaitingPayment => "Chờ chuyển khoản",
-        ServiceBookingStatus.PaymentExpired => "Hết hạn chờ chuyển khoản",
+        ServiceBookingStatus.AwaitingPayment => "Chờ thanh toán",
+        ServiceBookingStatus.PaymentExpired => "Hết hạn chờ thanh toán",
         ServiceBookingStatus.ConditionsMisdeclared => "Không đủ điều kiện tại chỗ",
         _ => "Bên cung cấp đã huỷ"
     };

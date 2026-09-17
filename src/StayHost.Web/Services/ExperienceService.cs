@@ -498,7 +498,7 @@ public class ExperienceService(
         {
             await ReleaseSeatsAsync(booking.SlotId, booking.Seats, booking.IsPrivate, ct);
             booking.Status = ExperienceBookingStatus.PaymentExpired;
-            booking.CancelReason = "Hết hạn chờ chuyển khoản.";
+            booking.CancelReason = "Hết hạn chờ thanh toán.";
             booking.CancelledAt = DateTime.UtcNow;
         }
 

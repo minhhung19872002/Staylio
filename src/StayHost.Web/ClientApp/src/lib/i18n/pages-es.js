@@ -1425,6 +1425,8 @@ export default {
   "Chép liên kết": "Copiar enlace",
   "Ảnh có đóng dấu mờ:": "Las fotos llevan marca de agua:",
   "Xem trước hậu quả khoá": "Previsualizar las consecuencias del bloqueo",
+  "Hết hạn chờ thanh toán": "Plazo de pago vencido",
+  "Hết hạn chờ thanh toán.": "El plazo de pago se agotó.",
   "Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự": "Causa de fuerza mayor (tormenta, inundación, confinamiento…) — mínimo 8 caracteres",
   "Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn": "Cancelar por fuerza mayor: el huésped recibe el reembolso completo y el anfitrión, ayuda del fondo. Reserva",
   "Bất khả kháng": "Fuerza mayor",

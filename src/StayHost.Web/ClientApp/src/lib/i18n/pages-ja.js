@@ -1425,6 +1425,8 @@ export default {
   'Chép liên kết': 'リンクをコピー',
   'Ảnh có đóng dấu mờ:': '写真には透かしが入っています：',
   'Xem trước hậu quả khoá': 'ロックの影響をプレビュー',
+  "Hết hạn chờ thanh toán": "支払い期限切れ",
+  "Hết hạn chờ thanh toán.": "支払い期限が切れました。",
   "Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự": "不可抗力の事由（台風、洪水、封鎖命令など）— 8文字以上",
   "Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn": "不可抗力によるキャンセル：ゲストは全額返金、ホストは基金から補償を受けます。予約",
   "Bất khả kháng": "不可抗力",

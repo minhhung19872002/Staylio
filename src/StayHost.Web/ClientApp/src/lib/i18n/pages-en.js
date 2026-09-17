@@ -1427,6 +1427,8 @@ export default {
   "Chép liên kết": "Copy link",
   "Ảnh có đóng dấu mờ:": "The photos are watermarked:",
   "Xem trước hậu quả khoá": "Preview lock consequences",
+  "Hết hạn chờ thanh toán": "Payment window expired",
+  "Hết hạn chờ thanh toán.": "The payment window ran out.",
   "Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự": "Force majeure event (storm, flood, lockdown order…) — at least 8 characters",
   "Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn": "Cancel for force majeure: the guest is refunded in full and the host is supported from the fund. Booking",
   "Bất khả kháng": "Force majeure",

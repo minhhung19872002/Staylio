@@ -1425,6 +1425,8 @@ export default {
   "Chép liên kết": "링크 복사",
   "Ảnh có đóng dấu mờ:": "사진에 워터마크가 적용되어 있습니다:",
   "Xem trước hậu quả khoá": "잠금 결과 미리보기",
+  "Hết hạn chờ thanh toán": "결제 기한 만료",
+  "Hết hạn chờ thanh toán.": "결제 기한이 지났습니다.",
   "Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự": "불가항력 사유(태풍, 홍수, 봉쇄 명령 등) — 최소 8자",
   "Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn": "불가항력 취소: 게스트는 전액 환불, 호스트는 기금에서 지원을 받습니다. 예약",
   "Bất khả kháng": "불가항력",

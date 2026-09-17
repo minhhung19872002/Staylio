@@ -224,11 +224,11 @@ def s_experience_goes_to_gateway():
     _, xs = call(opener(), "/api/experiences")
     items = xs if isinstance(xs, list) else (xs or {}).get("items", [])
     slot = None
-    for x in items[:10]:
+    for x in items[:30]:
         _, d = call(opener(), "/api/experiences/%s" % x["slug"])
         for s in (d or {}).get("slots", []):
             starts = datetime.datetime.fromisoformat(s["startsAt"].replace("Z", "+00:00"))
-            if starts - datetime.datetime.now(datetime.timezone.utc) > datetime.timedelta(days=3) \
+            if starts - datetime.datetime.now(datetime.timezone.utc) > datetime.timedelta(hours=30) \
                     and s.get("seatsLeft", 1) >= 1:
                 slot = s
                 break
@@ -248,7 +248,8 @@ def s_experience_goes_to_gateway():
 
 
 def s_shield_is_private():
-    op = sign_in("khach6@staylio.vn") if not LOCAL else register("sh%s@staylio.vn" % RUN, "Nguoi La")[0]
+    op = ((sign_in("khach6@staylio.vn") or sign_in("guest@staylio.vn")) if not LOCAL
+          else register("sh%s@staylio.vn" % RUN, "Nguoi La")[0])
     if op is None:
         return skip("H7. Hồ sơ Shield không đọc được của người khác", "không đăng nhập được")
     _, mine = call(op, "/api/shield")
@@ -266,7 +267,7 @@ def s_shield_is_private():
 def s_verify_link_not_in_response():
     if LOCAL:
         return skip("H8. Link xác thực email không nằm trong phản hồi", "Development trả link có chủ đích")
-    op = sign_in("khach6@staylio.vn")
+    op = sign_in("khach6@staylio.vn") or sign_in("guest@staylio.vn")
     if op is None:
         return skip("H8. Link xác thực email không nằm trong phản hồi", "không đăng nhập được")
     st, r = call(op, "/api/account/send-verification", m="POST")

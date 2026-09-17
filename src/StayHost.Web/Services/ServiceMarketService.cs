@@ -527,7 +527,7 @@ public class ServiceMarketService(
         foreach (var booking in stale)
         {
             booking.Status = ServiceBookingStatus.PaymentExpired;
-            booking.CancelReason = "Hết hạn chờ chuyển khoản.";
+            booking.CancelReason = "Hết hạn chờ thanh toán.";
             booking.CancelledAt = DateTime.UtcNow;
         }
 
