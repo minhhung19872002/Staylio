@@ -275,6 +275,47 @@ def s_verify_link_not_in_response():
     ok("H8. Link xác thực email không nằm trong phản hồi", st == 200 and not link, "http=%s link=%s" % (st, link))
 
 
+def s_stay_details_reach_the_host():
+    """Arrival hour, who is staying, work trip, special requests — kept, shown, corrected."""
+    name = "H10. Giờ đến, người lưu trú, yêu cầu đặc biệt được lưu và sửa được"
+    lst = instant_listing()
+    if not lst:
+        return skip(name, "không tìm được tin đặt ngay")
+    op = opener()
+    bad, bad_res = hold(op, lst["id"], 180 + int(RUN) % 30, specialRequests=["jacuzzi"])
+    st, b = hold(op, lst["id"], 180 + int(RUN) % 30, estimatedArrivalHour=14,
+                 stayingGuestName="Tran Thi Luu Tru", isBusinessTrip=True,
+                 specialRequests=["crib", "quiet-room"])
+    if st not in (200, 201):
+        return ok(name, False, "giữ chỗ %s %s" % (st, b))
+    try:
+        _, got = call(op, "/api/bookings/%d" % b["id"])
+        d = (got or {}).get("details") or {}
+        s2, edited = call(op, "/api/bookings/%d/details" % b["id"],
+                          {"estimatedArrivalHour": 23, "stayingGuestName": None,
+                           "isBusinessTrip": False, "specialRequests": ["late-check-out"]}, m="PUT")
+        s3, _ = call(op, "/api/bookings/%d/details" % b["id"],
+                     {"estimatedArrivalHour": 24, "specialRequests": []}, m="PUT")
+        host_sees = None
+        if LOCAL:
+            host = sign_in(sql("select u.\"Email\" from listings l join hosts h on h.\"Id\"=l.\"HostId\" "
+                               "join users u on u.\"Id\"=h.\"UserId\" where l.\"Id\"=%d" % lst["id"]))
+            _, dash = call(host, "/api/host/dashboard")
+            row = next((x for x in (dash or {}).get("bookings", []) if x["id"] == b["id"]), None)
+            host_sees = ((row or {}).get("details") or {}).get("specialRequestLabels")
+    finally:
+        call(op, "/api/bookings/%d/release" % b["id"], m="POST")
+    ok(name,
+       bad == 400 and "jacuzzi" in (bad_res or {}).get("message", "")
+       and d.get("arrivalLabel") == "14:00–15:00" and d.get("stayingGuestName") == "Tran Thi Luu Tru"
+       and d.get("isBusinessTrip") is True and d.get("specialRequests") == ["quiet-room", "crib"]
+       and s2 == 200 and (edited or {}).get("arrivalLabel") == "23:00–00:00"
+       and (edited or {}).get("specialRequests") == ["late-check-out"] and s3 == 400
+       and (not LOCAL or host_sees == ["Phòng yên tĩnh", "Cũi cho em bé"] or host_sees == ["Trả phòng muộn"]),
+       "lạ=%s, lưu=%s, sửa=%s→%s, giờ 24=%s, chủ nhà thấy=%s"
+       % (bad, d, s2, (edited or {}).get("specialRequests"), s3, host_sees))
+
+
 def s_ical_is_public_only():
     op = sign_in("host1@staylio.vn")
     if op is None:
@@ -412,15 +453,147 @@ def l_turnover_back_to_back():
         sql('update listings set "TurnoverDays"=0 where "Id"=%d' % lst["id"])
 
 
+# ------------------------------------------------ the four built on 17/09 evening
+def _job(op, offering_id, note="Khong di ung"):
+    """A paid service job, through VNPay's signed IPN when the card row is live."""
+    base = datetime.date.today()
+    last = None
+    for day in range(3, 30):
+        for hour in (2, 3, 7, 8):
+            st, res = call(op, "/api/services/%d/book" % offering_id, {
+                "startsAt": "%sT%02d:00:00" % ((base + datetime.timedelta(days=day)).isoformat(), hour),
+                "quantity": int(sql("select \"MinQuantity\" from service_offerings where \"Id\"=%d" % offering_id)),
+                "address": "12 Tran Phu, Da Nang", "latitude": 16.0544, "longitude": 108.2022,
+                "note": note, "conditionsConfirmed": True, "paymentMethod": "card", "cardLast4": "4242"})
+            if st in (200, 201):
+                st, res = gateway.finish(call, op, st, res, "ServiceBookingId")
+                if res.get("gatewaySettled") is False:
+                    raise SystemExit(res.get("gatewayNote"))
+                return res
+            last = "%s %s" % (st, res)
+    raise SystemExit("khong dat duoc dich vu: %s" % last)
+
+
+def _chef():
+    oid = int(sql("select \"Id\" from service_offerings where \"IsPublished\" and \"Category\"='chef' "
+                  "order by \"Id\" limit 1"))
+    email = sql("select u.\"Email\" from service_offerings o join hosts h on h.\"Id\"=o.\"HostId\" "
+                "join users u on u.\"Id\"=h.\"UserId\" where o.\"Id\"=%d" % oid)
+    return oid, email
+
+
+def ledger_ok():
+    return sql("select coalesce(sum(case when \"Direction\"=1 then \"Amount\" else -\"Amount\" end),0) "
+               "from ledger_entries") in ("0", "0.00")
+
+
+def l_host_cancel_is_fined():
+    lst = instant_listing()
+    guest, _ = register("fine%s@staylio.vn" % RUN, "Khach Bi Huy Phat")
+    st, b = hold(guest, lst["id"], 20 + int(RUN) % 5)
+    if st not in (200, 201):
+        return ok("L8. Chủ nhà tự huỷ thì chịu phí phạt", False, "giữ chỗ %s %s" % (st, b))
+    gateway.pay(call, guest, b["id"], {"paymentMethod": "card", "cardLast4": "4242"})
+    host_id = int(sql("select \"HostId\" from listings where \"Id\"=%d" % lst["id"]))
+    before = float(sql("select \"OwedToPlatform\" from hosts where \"Id\"=%d" % host_id))
+    subtotal = float(sql("select \"Subtotal\" from bookings where \"Id\"=%d" % b["id"]))
+    host = sign_in(sql("select u.\"Email\" from hosts h join users u on u.\"Id\"=h.\"UserId\" "
+                       "where h.\"Id\"=%d" % host_id))
+    s2, preview = call(host, "/api/host/bookings/%d/cancel-preview" % b["id"])
+    s3, _ = call(host, "/api/host/bookings/%d/cancel" % b["id"], {"reason": "Kiem tra phat"})
+    after = float(sql("select \"OwedToPlatform\" from hosts where \"Id\"=%d" % host_id))
+    fine = round(after - before)
+    said = any("phí phạt" in c for c in (preview or {}).get("consequences", []))
+    ok("L8. Chủ nhà tự huỷ thì chịu phí phạt (25% khi còn 2–30 ngày)",
+       s3 == 200 and said and fine == round(subtotal * 0.25),
+       "phạt %s trên %s, xem trước có nói: %s" % (fine, subtotal, said))
+
+
+def l_service_waits_for_the_provider():
+    oid, provider_email = _chef()
+    sql("update service_offerings set \"RequiresConfirmation\"=true where \"Id\"=%d" % oid)
+    try:
+        guest, _ = register("svcq%s@staylio.vn" % RUN, "Khach Cho Xac Nhan")
+        provider = sign_in(provider_email)
+        first = _job(guest, oid)
+        second = _job(guest, oid, "Khong an cay")
+        st1 = sql("select \"Status\" from service_bookings where \"Id\"=%d" % first["id"])
+        _, jobs = call(provider, "/api/services/jobs")
+        can = next((j for j in jobs if j["id"] == first["id"]), {}).get("canRespond")
+        a, _ = call(provider, "/api/services/jobs/%d/accept" % first["id"], m="POST")
+        d, _ = call(provider, "/api/services/jobs/%d/decline" % second["id"], {"reason": "Kin lich"})
+        rows = sql("select \"Status\" || '|' || \"RefundedAmount\" || '|' || \"Total\" from service_bookings "
+                   "where \"Id\" in (%d,%d) order by \"Id\"" % (first["id"], second["id"])).splitlines()
+        declined = rows[1].split("|")
+        ok("L9. Dịch vụ chờ nhà cung cấp xác nhận: nhận thì xác nhận, từ chối thì hoàn đủ",
+           st1 == "0" and can and a == 204 and d == 204 and rows[0].startswith("1|")
+           and declined[0] == "4" and declined[1] == declined[2],
+           "ban đầu=%s, nút=%s, nhận=%s, từ chối=%s, sau=%s" % (st1, can, a, d, rows))
+    finally:
+        sql("update service_offerings set \"RequiresConfirmation\"=false where \"Id\"=%d" % oid)
+
+
+def l_provider_cancel_refunds_credits_and_fines():
+    oid, provider_email = _chef()
+    guest, guest_id = register("svcc%s@staylio.vn" % RUN, "Khach Bi Nha Cung Cap Huy")
+    provider = sign_in(provider_email)
+    job = _job(guest, oid)
+    host_id = int(sql("select \"HostId\" from service_offerings where \"Id\"=%d" % oid))
+    before = float(sql("select \"OwedToPlatform\" from hosts where \"Id\"=%d" % host_id))
+    st, _ = call(provider, "/api/services/jobs/%d/cancel" % job["id"], {"reason": "Om dot xuat"})
+    status, refunded, total = sql("select \"Status\" || '|' || \"RefundedAmount\" || '|' || \"Total\" "
+                                  "from service_bookings where \"Id\"=%d" % job["id"]).split("|")
+    credit = float(sql("select coalesce(sum(\"Amount\"),0) from credit_entries "
+                       "where \"UserId\"=%d and \"Reason\"=1" % guest_id))
+    fined = float(sql("select \"OwedToPlatform\" from hosts where \"Id\"=%d" % host_id)) - before
+    ok("L10. Nhà cung cấp huỷ: hoàn đủ, tặng 10% số dư, bị phạt",
+       st == 204 and status == "4" and refunded == total
+       and credit == round(float(total) * 0.10) and fined > 0 and ledger_ok(),
+       "huỷ=%s trạng thái=%s hoàn=%s/%s số dư=%s phạt=%s" % (st, status, refunded, total, credit, fined))
+
+
+def l_guest_review_has_three_headings():
+    bid = sql("select b.\"Id\" from bookings b where b.\"Status\"=4 and b.\"GuestUserId\" is not null "
+              "and not exists (select 1 from guest_reviews r where r.\"BookingId\"=b.\"Id\") "
+              "order by b.\"Id\" desc limit 1")
+    if not bid:
+        # A paid stay moved to its end: the rule under test is the review form,
+        # not the lifecycle that gets a stay there.
+        bid = sql("select b.\"Id\" from bookings b where b.\"Status\" in (2,3) and b.\"GuestUserId\" is not null "
+                  "and not exists (select 1 from guest_reviews r where r.\"BookingId\"=b.\"Id\") "
+                  "order by b.\"Id\" desc limit 1")
+        if not bid:
+            return skip("L11. Chủ nhà chấm khách đủ ba mục", "không có đơn đã trả tiền nào")
+        sql("update bookings set \"Status\"=4 where \"Id\"=%s" % bid)
+    bid = int(bid)
+    # Both ends move together: a range whose end comes before its start is refused.
+    sql("update bookings set \"CheckIn\"=(now() at time zone 'utc')::date - 3, "
+        "\"CheckOut\"=(now() at time zone 'utc')::date - 1, \"Status\"=4 where \"Id\"=%d" % bid)
+    host = sign_in(sql("select u.\"Email\" from bookings b join listings l on l.\"Id\"=b.\"ListingId\" "
+                       "join hosts h on h.\"Id\"=l.\"HostId\" join users u on u.\"Id\"=h.\"UserId\" "
+                       "where b.\"Id\"=%d" % bid))
+    body = {"rating": 5, "text": "Khach giu gin nha cua rat tot.", "wouldHostAgain": True}
+    s1, _ = call(host, "/api/host/bookings/%d/review-guest" % bid, body)
+    s2, _ = call(host, "/api/host/bookings/%d/review-guest" % bid,
+                 dict(body, cleanliness=5, communication=4, houseRules=3))
+    row = sql("select \"Rating\" || '|' || \"Cleanliness\" || '|' || \"HouseRules\" "
+              "from guest_reviews where \"BookingId\"=%d" % bid)
+    ok("L11. Chủ nhà chấm khách đủ ba mục, điểm tổng là trung bình",
+       s1 == 400 and s2 == 200 and row == "4|5|3", "thiếu mục=%s, đủ mục=%s, lưu=%s" % (s1, s2, row))
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
                  s_catalogue_only_takes_money, s_hosting_links, s_experience_goes_to_gateway,
-                 s_shield_is_private, s_verify_link_not_in_response, s_ical_is_public_only]
+                 s_shield_is_private, s_verify_link_not_in_response, s_ical_is_public_only,
+                 s_stay_details_reach_the_host]
     if LOCAL:
         scenarios += [l_cohost_needs_confirmed_email, l_phone_change_resets_confirmation,
                       l_host_cancel_blocks_dates, l_min_nights_keeps_price, l_gift_card_redeemed_once,
-                      l_credit_not_spent_twice, l_turnover_back_to_back]
+                      l_credit_not_spent_twice, l_turnover_back_to_back,
+                      l_host_cancel_is_fined, l_service_waits_for_the_provider,
+                      l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings]
     for s in scenarios:
         try:
             s()

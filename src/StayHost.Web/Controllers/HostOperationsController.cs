@@ -283,6 +283,15 @@ public class HostOperationsController(
         if (outcome.GoodwillCredit > 0)
             consequences.Insert(1, $"Khách nhận thêm {outcome.GoodwillCredit:N0}đ số dư đền bù.");
 
+        var penalty = booking.PaidAtProperty
+                      || booking.Status is not (BookingStatus.Confirmed or BookingStatus.InProgress)
+            ? 0m
+            : HostPenalties.For(booking.Subtotal,
+                BookingService.CheckInUtc(booking.Listing!, booking.CheckIn), DateTime.UtcNow);
+        if (penalty > 0)
+            consequences.Insert(1,
+                $"Bạn chịu phí phạt huỷ đơn {penalty:N0}đ ({HostPenalties.RateFor(BookingService.CheckInUtc(booking.Listing!, booking.CheckIn), DateTime.UtcNow):P0} giá trị đơn), trừ vào lần chuyển tiền kế tiếp.");
+
         if (opensShield)
             consequences.Insert(1,
                 $"Còn {daysOut} ngày tới ngày nhận phòng nên hệ thống tự mở hồ sơ Staylio Shield "
@@ -335,6 +344,9 @@ public class HostOperationsController(
         // docs/07 §10 — ask the gateway before deciding where the money lands.
         // This used to default to "the card took it" without asking anything,
         // which was harmless until a real gateway held the money.
+        var wasPaid = booking.Status is BookingStatus.Confirmed or BookingStatus.InProgress
+                      && !booking.PaidAtProperty;
+
         var sentBack = await refunds.SendAsync(
             booking, outcome.Amount, "host", "Chu nha huy don", ct);
 
@@ -342,7 +354,7 @@ public class HostOperationsController(
             db, booking, outcome, CancelledBy.Host,
             (req?.Reason ?? "Chủ nhà huỷ đơn").Trim(), sentBack);
 
-        await ApplyHostCancelPenaltyAsync(booking, ct);
+        await ApplyHostCancelPenaltyAsync(booking, wasPaid, ct);
 
         // docs/01 ĐG-12 — a public note on the listing, so the next guest sees the
         // host has pulled out of a confirmed stay before. Not a review: no rating,
@@ -377,7 +389,7 @@ public class HostOperationsController(
     /// The fifth — a penalty rising towards check-in — has no amounts in the
     /// spec and is left for the customer to set.
     /// </summary>
-    private async Task ApplyHostCancelPenaltyAsync(Booking booking, CancellationToken ct)
+    private async Task ApplyHostCancelPenaltyAsync(Booking booking, bool wasPaid, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
 
@@ -395,6 +407,23 @@ public class HostOperationsController(
 
         var hostId = booking.Listing!.HostId;
         var host = await db.Hosts.FirstOrDefaultAsync(h => h.Id == hostId, ct);
+
+        // The fine rises as the stay comes closer. Only a stay that was actually
+        // paid through the platform: a request nobody paid for costs the host
+        // nothing to decline, and a stay paid at the door has no platform money.
+        var fine = !wasPaid
+            ? 0m
+            : HostPenalties.For(booking.Subtotal, BookingService.CheckInUtc(booking.Listing, booking.CheckIn), now);
+        if (host is not null && fine > 0)
+        {
+            host.OwedToPlatform += fine;
+            db.BookingEvents.Add(BookingLifecycle.Note(booking, "system",
+                $"Chủ nhà chịu phí phạt huỷ {fine:#,##0}₫."));
+            var hostUser = await db.Users.FirstOrDefaultAsync(u => u.Id == host.UserId, ct);
+            await notifications.QueueWithEmailAsync(hostUser, NotificationKind.System,
+                "Phí phạt huỷ đơn", HostPenalties.Notice(fine, booking.Reference), "/hosting?tab=earnings", ct);
+        }
+
         if (host is { IsSuperhost: true })
         {
             host.IsSuperhost = false;

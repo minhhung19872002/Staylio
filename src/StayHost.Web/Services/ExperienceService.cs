@@ -1055,6 +1055,20 @@ public class ExperienceService(
                 "/experiences", ct);
         }
 
+        // docs/09 §2.8 — "người dẫn bị phạt"; the sweep for too few people is
+        // nobody's fault and passes byProvider: false.
+        var fine = byProvider
+            ? HostPenalties.For(tickets.Sum(x => x.Subtotal), slot.StartsAt, now)
+            : 0m;
+        if (fine > 0 && await db.Hosts.FirstOrDefaultAsync(h => h.Id == slot.Experience!.HostId, ct) is { } guide)
+        {
+            guide.OwedToPlatform += fine;
+            var guideUser = await db.Users.FirstOrDefaultAsync(u => u.Id == guide.UserId, ct);
+            await notifications.QueueWithEmailAsync(guideUser, NotificationKind.System,
+                "Phí phạt huỷ suất trải nghiệm",
+                HostPenalties.Notice(fine, $"suất {slot.StartsAt:HH:mm dd/MM}"), "/hosting?tab=experiences", ct);
+        }
+
         slot.Status = SlotStatus.Cancelled;
         slot.CancelReason = reason;
         await db.SaveChangesAsync(ct);

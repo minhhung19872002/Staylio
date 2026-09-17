@@ -27,6 +27,23 @@ public class BookingService(StayHostDbContext db)
         }
     }
 
+    /// <summary>
+    /// The instant a stay begins: check-in day at the listing's own check-in
+    /// hour, in the listing's own time zone.
+    /// </summary>
+    public static DateTime CheckInUtc(Listing listing, DateOnly checkIn)
+    {
+        var local = checkIn.ToDateTime(listing.CheckInFrom, DateTimeKind.Unspecified);
+        try
+        {
+            return TimeZoneInfo.ConvertTimeToUtc(local, TimeZoneInfo.FindSystemTimeZoneById(listing.TimeZoneId));
+        }
+        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException or ArgumentException)
+        {
+            return TimeZoneInfo.ConvertTimeToUtc(local, VietnamTime);
+        }
+    }
+
     private static readonly TimeZoneInfo VietnamTime = ResolveVietnamTime();
 
     private static TimeZoneInfo ResolveVietnamTime()
@@ -463,6 +480,11 @@ public class BookingLifecycleWorker(IServiceProvider services, ILogger<BookingLi
                 if (certResult.Hidden + certResult.Reminded > 0)
                     log.LogInformation("Chứng chỉ dịch vụ: {Hidden} tạm ẩn, {Reminded} nhắc.",
                         certResult.Hidden, certResult.Reminded);
+
+                // docs/09 §3.5 — requests the provider never answered.
+                var unanswered = await certs.ExpireRequestsAsync(stoppingToken);
+                if (unanswered > 0)
+                    log.LogInformation("Yêu cầu dịch vụ quá hạn xác nhận: {Count}.", unanswered);
 
                 var lapsedJobs = await certs.ExpireAwaitingTransfersAsync(stoppingToken);
                 if (lapsedJobs > 0)

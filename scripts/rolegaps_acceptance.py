@@ -394,6 +394,9 @@ def s5_edit_review(guest_op):
     # the same fixture-setting the other suites do.
     row = sql('select b."Id" from bookings b where b."Status"=4 and b."GuestUserId" is not null '
               'and not exists (select 1 from reviews r where r."BookingId"=b."Id") '
+              # A host review already there publishes the guest's at once, and a
+              # published review is past editing — another suite may have left one.
+              'and not exists (select 1 from guest_reviews g where g."BookingId"=b."Id") '
               'order by b."Id" desc limit 1')
     if not row:
         row = sql('select "Id" from bookings where "Status"=2 and "GuestUserId" is not null '

@@ -14,6 +14,7 @@ import { Modal } from './Modal.jsx';
 import { PaymentMethods } from '../PaymentMethods.jsx';
 import { FALLBACK_METHODS } from '../../lib/payments.js';
 import { t } from '../../lib/i18n.js';
+import { StayDetailsFields } from '../StayDetailsFields.jsx';
 
 const PHOTO_CAPTIONS = ['Ảnh chính', 'Phòng khách', 'Phòng ngủ', 'Không gian ngoài trời', 'Phòng tắm'];
 
@@ -568,6 +569,13 @@ function StepTrip({ q }) {
                     value={state.checkoutNote} onChange={e => set({ checkoutNote: e.target.value })}
                     style={{ width: '100%', padding: '12px 14px', border: '1px solid var(--line)', borderRadius: 12, fontSize: 14 }} />
         </label>
+      </div>
+    </section>
+
+    <section className="modal-section">
+      <h3>{t('Thông tin chuyến đi')}</h3>
+      <div style={{ marginTop: 14 }}>
+        <StayDetailsFields value={state.checkoutDetails} onChange={v => set({ checkoutDetails: v })} />
       </div>
     </section>
 

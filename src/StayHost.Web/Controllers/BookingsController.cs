@@ -83,6 +83,11 @@ public class BookingsController(
          */
         var user = await auth.CurrentUserAsync(ct);
 
+        if (!StayDetails.ValidArrival(req.EstimatedArrivalHour))
+            return BadRequest(new { message = "Giờ đến dự kiến phải là một giờ trong ngày (0–23)." });
+        var (specialRequests, requestError) = StayDetails.NormaliseRequests(req.SpecialRequests);
+        if (requestError is not null) return BadRequest(new { message = requestError });
+
         if (user is null)
         {
             var anonymous = GuestCheckout.CanBookAnonymously(
@@ -290,6 +295,10 @@ public class BookingsController(
             GuestEmail = req.GuestEmail ?? user?.Email,
             GuestPhone = Identity.NormalisePhone(req.GuestPhone) ?? user?.Phone,
             GuestNote = req.GuestNote,
+            EstimatedArrivalHour = req.EstimatedArrivalHour,
+            StayingGuestName = StayDetails.StayingGuest(req.StayingGuestName, req.GuestName ?? user?.FullName),
+            IsBusinessTrip = req.IsBusinessTrip,
+            SpecialRequests = specialRequests,
             // docs/03 §2–§3: instant book takes the dates off the market for 15
             // minutes while the guest pays; a request waits 24 hours on the host
             // and deliberately does not hold the dates at all.
@@ -378,7 +387,8 @@ public class BookingsController(
             await notifications.QueueWithEmailAsync(hostUser, NotificationKind.BookingCreated,
                 "Có yêu cầu đặt chỗ cần duyệt",
                 $"{booking.GuestName} đặt \"{listing.Title}\" từ {booking.CheckIn:dd/MM} đến {booking.CheckOut:dd/MM} " +
-                $"({booking.Nights} đêm, {booking.Guests} khách). Bạn có 24 giờ để trả lời.",
+                $"({booking.Nights} đêm, {booking.Guests} khách). Bạn có 24 giờ để trả lời." +
+                string.Concat(StayDetails.Sentences(booking).Select(s => " " + s)),
                 "/hosting", ct);
 
             var line = $"Mã đặt chỗ {booking.Reference} · {listing.Title} · {booking.Nights} đêm. " +
@@ -1101,6 +1111,49 @@ public class BookingsController(
 
         var outcome = Cancellation.Refund(await BuildCancelContextAsync(booking, CancelledBy.Guest, ct));
         return Ok(ToPreview(booking, outcome));
+    }
+
+    /// <summary>
+    /// Arrival time, who is staying, work trip, special requests — corrected by
+    /// the guest while the stay is still ahead. The host is told, since a crib
+    /// asked for the day before is something somebody has to carry upstairs.
+    /// </summary>
+    [HttpPut("{id:int}/details")]
+    public async Task<ActionResult<StayDetailsDto>> UpdateDetails(
+        int id, [FromBody] StayDetailsRequest req, CancellationToken ct)
+    {
+        var booking = await FindOwnedAsync(id, ct);
+        if (booking is null) return NotFound();
+        if (!StayDetails.Editable(booking.Status))
+            return BadRequest(new { message = $"Đơn đang ở trạng thái \"{BookingLifecycle.Label(booking.Status)}\" nên không sửa được thông tin." });
+        if (!StayDetails.ValidArrival(req.EstimatedArrivalHour))
+            return BadRequest(new { message = "Giờ đến dự kiến phải là một giờ trong ngày (0–23)." });
+        var (specialRequests, requestError) = StayDetails.NormaliseRequests(req.SpecialRequests);
+        if (requestError is not null) return BadRequest(new { message = requestError });
+
+        var before = StayDetailsDto.Of(booking);
+        booking.EstimatedArrivalHour = req.EstimatedArrivalHour;
+        booking.StayingGuestName = StayDetails.StayingGuest(req.StayingGuestName, booking.GuestName);
+        booking.IsBusinessTrip = req.IsBusinessTrip;
+        booking.SpecialRequests = specialRequests;
+        var after = StayDetailsDto.Of(booking);
+
+        var changed = before.EstimatedArrivalHour != after.EstimatedArrivalHour
+                      || before.StayingGuestName != after.StayingGuestName
+                      || !before.SpecialRequests.SequenceEqual(after.SpecialRequests);
+        if (changed && booking.Status != BookingStatus.PendingPayment)
+        {
+            var hostUser = await db.Listings.Where(l => l.Id == booking.ListingId)
+                .Select(l => l.Host!.User).FirstOrDefaultAsync(ct);
+            var lines = StayDetails.Sentences(booking);
+            await notifications.QueueWithEmailAsync(hostUser, NotificationKind.BookingCreated,
+                $"Khách cập nhật thông tin đơn {booking.Reference}",
+                lines.Count > 0 ? string.Join(" ", lines) : "Khách đã xoá các yêu cầu cho chuyến đi.",
+                "/hosting?tab=bookings", ct);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return Ok(after);
     }
 
     [HttpPost("{id:int}/cancel")]
@@ -1881,7 +1934,8 @@ public class BookingsController(
             PaidAtProperty: b.PaidAtProperty,
             CashCollectedAt: b.CashCollectedAt)
         {
-            Adults = b.Adults, Children = b.Children, Infants = b.Infants, Pets = b.Pets
+            Adults = b.Adults, Children = b.Children, Infants = b.Infants, Pets = b.Pets,
+            Details = StayDetailsDto.Of(b)
         };
     }
 

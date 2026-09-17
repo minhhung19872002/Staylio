@@ -99,7 +99,7 @@ const BLANK = {
   travelFeePerKm: 0, maxTravelKm: 0,
   latitude: 0, longitude: 0,
   opensAtHour: 8, closesAtHour: 20,
-  workingDaysMask: 127, bufferMinutes: 0, maxJobsPerDay: 0,
+  workingDaysMask: 127, bufferMinutes: 0, maxJobsPerDay: 0, requiresConfirmation: false,
   onSiteRequirements: '', addOns: [], images: [],
   certificateName: '', certificateExpiresOn: '',
   isPublished: false
@@ -134,6 +134,7 @@ export function ServiceEditor() {
       closesAtHour: editing.closesAtHour ?? 20,
       workingDaysMask: editing.workingDaysMask ?? 127,
       maxJobsPerDay: editing.maxJobsPerDay ?? 0,
+      requiresConfirmation: !!editing.requiresConfirmation,
       bufferMinutes: editing.bufferMinutes ?? 0,
       onSiteRequirements: (editing.onSiteRequirements ?? []).join('\n'),
       addOns: (editing.addOns ?? []).map(a => ({ name: a.name, price: a.price })),
@@ -190,6 +191,7 @@ export function ServiceEditor() {
       workingDaysMask: form.workingDaysMask,
       bufferMinutes: Number(form.bufferMinutes) || 0,
       maxJobsPerDay: Number(form.maxJobsPerDay) || 0,
+      requiresConfirmation: !!form.requiresConfirmation,
       onSiteRequirements: form.onSiteRequirements.split('\n').map(s => s.trim()).filter(Boolean),
       addOns: form.addOns
         .filter(a => a.name.trim())
@@ -376,6 +378,12 @@ export function ServiceEditor() {
             <input type="number" min={0} max={20} value={form.maxJobsPerDay}
                    onChange={e => num('maxJobsPerDay', e.target.value)} /></label>
         </div>
+        {/* docs/09 §3.5 — "đặt ngay hoặc chờ nhà cung cấp xác nhận". */}
+        <label className="check-row" style={{ marginTop: 12 }}>
+          <input type="checkbox" checked={!!form.requiresConfirmation}
+                 onChange={e => setForm(f => ({ ...f, requiresConfirmation: e.target.checked }))} />
+          <span>{t('Tôi xác nhận từng đơn trước khi nhận (trong 24 giờ; không xác nhận thì khách được hoàn tiền)')}</span>
+        </label>
         <p className="field-note">
           {t('Để 0 phút nghỉ là dùng mức mặc định 30 phút, và 0 đơn mỗi ngày là không giới hạn. Hệ thống còn cộng thêm thời gian di chuyển giữa hai địa chỉ, nên hai đơn quá xa nhau sẽ bị chặn.')}
         </p>

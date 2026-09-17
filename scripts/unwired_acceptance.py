@@ -125,13 +125,17 @@ def book_and_pay(op, slug, days_out=20, nights=3, card_last4="4242"):
     lid = detail["card"]["id"]
 
     today = utc_today()
-    ci = (today + datetime.timedelta(days=days_out)).isoformat()
-    co = (today + datetime.timedelta(days=days_out + nights)).isoformat()
-
-    st, res = call(op, "/api/bookings", {
-        "listingId": lid, "checkIn": ci, "checkOut": co,
-        "adults": 2, "children": 0, "infants": 0, "pets": 0,
-        "agreedToRules": True})
+    # Moved on a week at a time past dates an earlier run already took.
+    for week in range(12):
+        ci = (today + datetime.timedelta(days=days_out + 7 * week)).isoformat()
+        co = (today + datetime.timedelta(days=days_out + 7 * week + nights)).isoformat()
+        st, res = call(op, "/api/bookings", {
+            "listingId": lid, "checkIn": ci, "checkOut": co,
+            "adults": 2, "children": 0, "infants": 0, "pets": 0,
+            "agreedToRules": True})
+        if not (st == 409 and isinstance(res, dict)
+                and res.get("reason") in ("DatesTaken", "TurnoverTime")):
+            break
     if st not in (200, 201):
         return None, f"book {st} {res}"
 

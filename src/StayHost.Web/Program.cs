@@ -25,6 +25,10 @@ if (credits is not null) CreditSettings.Current = credits;
 var moderation = builder.Configuration.GetSection("Moderation").Get<ModerationSettings>();
 if (moderation is not null) ModerationSettings.Current = moderation;
 
+// docs/03 §4, docs/09 §2.8/§3.6 — what a host or provider pays for pulling out.
+var hostPenalty = builder.Configuration.GetSection("HostPenalty").Get<HostPenaltySettings>();
+if (hostPenalty is not null) HostPenaltySettings.Current = hostPenalty;
+
 // docs/01 TĐ-03, TN-06 — machine translation. Both compose files run a
 // LibreTranslate container and set Translation__Provider, so a deployment has this
 // on without buying anything; a bare `dotnet run` has no provider named and the

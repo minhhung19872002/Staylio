@@ -84,6 +84,35 @@ public class ServicesController(
     /// pay for the wasted trip, so the person who travelled is not left with
     /// nothing.
     /// </summary>
+    /// <summary>docs/09 §3.5 — the provider accepts or declines a job that waits on them.</summary>
+    [HttpPost("jobs/{id:int}/accept")]
+    public Task<IActionResult> Accept(int id, CancellationToken ct) => DecideAsync(id, true, null, ct);
+
+    [HttpPost("jobs/{id:int}/decline")]
+    public Task<IActionResult> Decline(int id, [FromBody] ProviderJobDecisionRequest? req, CancellationToken ct) =>
+        DecideAsync(id, false, req?.Reason, ct);
+
+    private async Task<IActionResult> DecideAsync(int id, bool accept, string? reason, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+
+        var error = await market.RespondAsync(user.Id, id, accept, reason, ct);
+        return error is null ? NoContent() : BadRequest(new { message = error });
+    }
+
+    /// <summary>docs/09 §3.6 — the provider pulls out: full refund, balance for the guest, a fine.</summary>
+    [HttpPost("jobs/{id:int}/cancel")]
+    public async Task<IActionResult> ProviderCancel(
+        int id, [FromBody] ProviderJobDecisionRequest? req, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+
+        var error = await market.ProviderCancelAsync(user.Id, id, req?.Reason, ct);
+        return error is null ? NoContent() : BadRequest(new { message = error });
+    }
+
     [HttpPost("bookings/{id:int}/misdeclared")]
     public async Task<ActionResult<ServiceBookingDto>> Misdeclared(
         int id, [FromBody] MisdeclaredConditionsRequest? req, CancellationToken ct)

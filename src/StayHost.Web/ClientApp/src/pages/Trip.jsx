@@ -9,6 +9,7 @@ import { CardCarousel } from '../components/CardCarousel.jsx';
 import { Deadline, previewCancel, openReview } from './Trips.jsx';
 import { duration } from './Experiences.jsx';
 import { t } from '../lib/i18n.js';
+import { StayDetailsFields, StayDetailsSummary, stayDetailsFrom, stayDetailsBody } from '../components/StayDetailsFields.jsx';
 
 const PAYMENT = {
   Pending: 'Đang chờ',
@@ -83,6 +84,7 @@ export function Trip() {
                 <b>{t('Lời nhắn:')}</b> {b.guestNote}
               </p>
             )}
+            <TripDetails booking={b} />
           </section>
 
           <CheckInSection booking={b} />
@@ -717,6 +719,50 @@ function History({ events }) {
         ))}
       </div>
     </section>
+  );
+}
+
+/* Mirrors StayDetails.Editable: only while the stay is still ahead. */
+const DETAILS_EDITABLE = ['PendingPayment', 'PendingHostApproval', 'Confirmed'];
+
+function TripDetails({ booking: b }) {
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const canEdit = DETAILS_EDITABLE.includes(b.status);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.updateStayDetails(b.id, stayDetailsBody(draft));
+      setDraft(null);
+      await loadTrip(b.id);
+      toast(t('Đã lưu. Chủ nhà được báo về thay đổi.'));
+    } catch (err) { toast(err.message); }
+    finally { setBusy(false); }
+  };
+
+  if (draft) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <StayDetailsFields value={draft} onChange={setDraft} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{t('Lưu')}</button>
+          <button className="btn btn-outline btn-sm" disabled={busy} onClick={() => setDraft(null)}>{t('Huỷ')}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <StayDetailsSummary details={b.details} />
+      {canEdit && (
+        <button className="link-btn" style={{ marginTop: 6 }}
+                onClick={() => setDraft(stayDetailsFrom(b.details))}>
+          {t('Sửa giờ đến và yêu cầu đặc biệt')}
+        </button>
+      )}
+    </div>
   );
 }
 

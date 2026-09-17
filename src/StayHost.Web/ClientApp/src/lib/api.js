@@ -345,6 +345,9 @@ export const api = {
   /* docs/07 §2.5 — find a booking again with no account. */
   lookupBooking: (reference, email) =>
     request('/api/bookings/lookup', { method: 'POST', body: JSON.stringify({ reference, email }) }),
+  /* Arrival hour, who is staying, work trip, special requests — while the stay is ahead. */
+  updateStayDetails: (bookingId, body) =>
+    request(`/api/bookings/${bookingId}/details`, { method: 'PUT', body: JSON.stringify(body) }),
   /* docs/07 §2.5 — the host confirms the cash is in hand. */
   cashCollected: bookingId =>
     request(`/api/host/bookings/${bookingId}/cash-collected`, { method: 'POST' }),
@@ -598,6 +601,12 @@ export const api = {
     request(`/api/services/${id}/book`, { method: 'POST', body: JSON.stringify(body) }),
   serviceBookings: () => request('/api/services/bookings'),
   cancelServiceBooking: id => request(`/api/services/bookings/${id}/cancel`, { method: 'POST' }),
+  /* docs/09 §3.5–§3.6 — the provider's side of a job. */
+  acceptServiceJob: id => request(`/api/services/jobs/${id}/accept`, { method: 'POST' }),
+  declineServiceJob: (id, reason) =>
+    request(`/api/services/jobs/${id}/decline`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  cancelServiceJob: (id, reason) =>
+    request(`/api/services/jobs/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
   /* docs/09 §5 — the service's own four criteria, written and read. */
   reviewServiceBooking: (bookingId, body) =>
     request(`/api/services/bookings/${bookingId}/review`, { method: 'POST', body: JSON.stringify(body) }),

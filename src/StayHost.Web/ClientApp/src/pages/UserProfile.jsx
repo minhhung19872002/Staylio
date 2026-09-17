@@ -193,6 +193,18 @@ export function UserProfile() {
       </>}
 
       <ReviewList title={`${t('Đánh giá về')} ${p.displayName} ${t('với vai trò chủ nhà')}`} items={p.reviewsAsHost} />
+      {/* docs/03 §7 — the three headings hosts score a guest on. */}
+      {p.guestScores && (
+        <div className="kv-grid" style={{ marginTop: 32 }}>
+          {[['Sạch sẽ', p.guestScores.cleanliness], ['Giao tiếp', p.guestScores.communication],
+            ['Tuân thủ nội quy', p.guestScores.houseRules]].filter(([, v]) => v != null).map(([label, v]) => (
+            <div className="kv" key={label}><span className="kv-label">{t(label)}</span><b>★ {v}</b></div>
+          ))}
+          <div className="kv">
+            <span className="kv-label">{t('Chủ nhà sẽ đón lại')}</span><b>{p.guestScores.wouldHostAgainPercent}%</b>
+          </div>
+        </div>
+      )}
       <ReviewList title={`${t('Đánh giá về')} ${p.displayName} ${t('với vai trò khách')}`} items={p.reviewsAsGuest} />
 
       {!p.reviewsAsHost.length && !p.reviewsAsGuest.length && (

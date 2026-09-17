@@ -125,7 +125,7 @@ public class ServiceMarketService(
             o.TravelFeePerKm, o.MaxTravelKm, ServiceRules.WorkingDays(o.WorkingDaysMask), o.MaxJobsPerDay,
             o.CertificateName, o.CertificateExpiresOn, o.BufferMinutes,
             o.Host?.AvatarUrl, o.Host?.YearsHosting ?? 0, o.Host?.Bio,
-            o.Host?.IsSuperhost ?? false, o.Host?.UserId);
+            o.Host?.IsSuperhost ?? false, o.Host?.UserId, o.RequiresConfirmation);
     }
 
     /// <summary>
@@ -231,6 +231,7 @@ public class ServiceMarketService(
         offering.WorkingDaysMask = req.WorkingDaysMask is > 0 and < 128 ? req.WorkingDaysMask : 127;
         offering.BufferMinutes = Math.Clamp(req.BufferMinutes, 0, 240);
         offering.MaxJobsPerDay = Math.Clamp(req.MaxJobsPerDay, 0, 20);
+        offering.RequiresConfirmation = req.RequiresConfirmation;
         offering.OnSiteRequirements = string.Join('\n', req.OnSiteRequirements ?? []);
 
         // docs/09 §3.2 — the practising certificate this category demands.
@@ -436,7 +437,12 @@ public class ServiceMarketService(
             AddOnsTotal = price.AddOnsTotal,
             TravelFee = price.TravelFee,
             ConditionsConfirmed = req.ConditionsConfirmed,
-            Status = waits ? ServiceBookingStatus.AwaitingPayment : ServiceBookingStatus.Confirmed,
+            Status = waits
+                ? ServiceBookingStatus.AwaitingPayment
+                : offering.RequiresConfirmation ? ServiceBookingStatus.Requested : ServiceBookingStatus.Confirmed,
+            RespondBy = !waits && offering.RequiresConfirmation
+                ? DateTime.UtcNow + ServiceRules.ConfirmationWindow
+                : null,
             AddOns = chosen
                 .Select(a => new ServiceBookingAddOn { AddOnId = a.Id, Name = a.Name, Price = a.Price })
                 .ToList()
@@ -452,12 +458,7 @@ public class ServiceMarketService(
         db.LedgerEntries.AddRange(Ledger.CaptureService(booking, DateTime.UtcNow));
         await db.SaveChangesAsync(ct);
 
-        await notifications.QueueWithEmailAsync(
-            user, NotificationKind.BookingConfirmed,
-            "Đã đặt dịch vụ",
-            $"{offering.Title} · {booking.StartsAt:dd/MM HH:mm} · mã {booking.Reference}.",
-            "/services/bookings", ct);
-        await db.SaveChangesAsync(ct);
+        await AnnounceAsync(booking, offering, user, "Đã đặt dịch vụ", ct);
 
         log.LogInformation("Service {Reference} booked.", booking.Reference);
         return (booking, null);
@@ -486,19 +487,20 @@ public class ServiceMarketService(
     {
         if (booking.Status != ServiceBookingStatus.AwaitingPayment) return;
 
-        booking.Status = ServiceBookingStatus.Confirmed;
+        var offering = await db.ServiceOfferings.FirstAsync(o => o.Id == booking.OfferingId, ct);
+
+        // Paid now; a provider who accepts each job still has to say yes.
+        booking.Status = offering.RequiresConfirmation
+            ? ServiceBookingStatus.Requested
+            : ServiceBookingStatus.Confirmed;
+        if (offering.RequiresConfirmation)
+            booking.RespondBy = DateTime.UtcNow + ServiceRules.ConfirmationWindow;
+
         db.LedgerEntries.AddRange(Ledger.CaptureService(booking, DateTime.UtcNow));
         await db.SaveChangesAsync(ct);
 
-        var offering = await db.ServiceOfferings.FirstOrDefaultAsync(o => o.Id == booking.OfferingId, ct);
         var guest = await db.Users.FirstOrDefaultAsync(u => u.Id == booking.GuestUserId, ct);
-
-        await notifications.QueueWithEmailAsync(
-            guest, NotificationKind.BookingConfirmed,
-            title,
-            $"{offering?.Title} · {booking.StartsAt:dd/MM HH:mm} · mã {booking.Reference}.",
-            "/services/bookings", ct);
-        await db.SaveChangesAsync(ct);
+        await AnnounceAsync(booking, offering, guest, title, ct);
 
         log.LogInformation("Service {Reference} confirmed after payment.", booking.Reference);
     }
@@ -534,6 +536,170 @@ public class ServiceMarketService(
         await db.SaveChangesAsync(ct);
         log.LogInformation("Huỷ {Count} đơn dịch vụ hết hạn chờ chuyển khoản.", stale.Count);
         return stale.Count;
+    }
+
+    /// <summary>
+    /// What the guest and the provider are told once the money is in: a booked
+    /// job, or — docs/09 §3.5 — a request the provider has 24 hours to answer.
+    /// </summary>
+    private async Task AnnounceAsync(
+        ServiceBooking booking, ServiceOffering offering, User? guest, string title, CancellationToken ct)
+    {
+        var line = $"{offering.Title} · {booking.StartsAt:dd/MM HH:mm} · mã {booking.Reference}.";
+        var waiting = booking.Status == ServiceBookingStatus.Requested;
+
+        await notifications.QueueWithEmailAsync(
+            guest, NotificationKind.BookingConfirmed,
+            waiting ? "Đã gửi yêu cầu dịch vụ" : title,
+            waiting
+                ? $"{line} Nhà cung cấp sẽ xác nhận trong 24 giờ; nếu không, bạn được hoàn toàn bộ."
+                : line,
+            "/services/bookings", ct);
+
+        var provider = await db.Users.FirstOrDefaultAsync(u => u.HostProfile!.Id == offering.HostId, ct);
+        await notifications.QueueWithEmailAsync(
+            provider, NotificationKind.BookingCreated,
+            waiting ? "Có yêu cầu dịch vụ cần xác nhận" : "Bạn có đơn dịch vụ mới",
+            waiting ? $"{line} Hãy xác nhận hoặc từ chối trong 24 giờ." : line,
+            "/hosting?tab=services", ct);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>docs/09 §3.5 — the provider's answer to a job that waits on them.</summary>
+    public async Task<string?> RespondAsync(
+        int providerUserId, int bookingId, bool accept, string? reason, CancellationToken ct)
+    {
+        var booking = await db.ServiceBookings
+            .Include(b => b.Offering).ThenInclude(o => o!.Host)
+            .FirstOrDefaultAsync(b => b.Id == bookingId, ct);
+        if (booking?.Offering?.Host?.UserId != providerUserId) return "Bạn không phải người nhận đơn này.";
+        if (booking.Status != ServiceBookingStatus.Requested) return "Đơn này không còn chờ xác nhận.";
+
+        var guest = await db.Users.FirstOrDefaultAsync(u => u.Id == booking.GuestUserId, ct);
+
+        if (accept)
+        {
+            booking.Status = ServiceBookingStatus.Confirmed;
+            booking.RespondBy = null;
+            await db.SaveChangesAsync(ct);
+            await notifications.QueueWithEmailAsync(guest, NotificationKind.BookingConfirmed,
+                "Nhà cung cấp đã xác nhận",
+                $"{booking.Offering.Title} · {booking.StartsAt:dd/MM HH:mm} · mã {booking.Reference}.",
+                "/services/bookings", ct);
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
+
+        await DeclineAsync(booking, guest,
+            string.IsNullOrWhiteSpace(reason) ? "Nhà cung cấp không nhận đơn này." : reason.Trim(), ct);
+        return null;
+    }
+
+    /// <summary>A job the provider did not take: everything back, no fine — they never agreed to it.</summary>
+    private async Task DeclineAsync(ServiceBooking booking, User? guest, string reason, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        booking.Status = ServiceBookingStatus.CancelledByProvider;
+        booking.RefundedAmount = booking.Total;
+        booking.CancelReason = reason;
+        booking.CancelledAt = now;
+        booking.RespondBy = null;
+
+        db.LedgerEntries.AddRange(Ledger.RefundService(booking, booking.Total, now));
+        await db.SaveChangesAsync(ct);
+        await SendRefundAsync(booking, booking.Total, ct);
+
+        await notifications.QueueWithEmailAsync(guest, NotificationKind.BookingDeclined,
+            "Yêu cầu dịch vụ không được nhận",
+            $"{reason} Toàn bộ {booking.Total:#,##0}₫ của đơn {booking.Reference} được hoàn lại.",
+            "/services/bookings", ct);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>docs/09 §3.5 — requests nobody answered inside the window.</summary>
+    public async Task<int> ExpireRequestsAsync(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var stale = await db.ServiceBookings
+            .Where(b => b.Status == ServiceBookingStatus.Requested && b.RespondBy != null && b.RespondBy <= now)
+            .Take(100)
+            .ToListAsync(ct);
+
+        foreach (var booking in stale)
+        {
+            var guest = await db.Users.FirstOrDefaultAsync(u => u.Id == booking.GuestUserId, ct);
+            await DeclineAsync(booking, guest, "Nhà cung cấp không xác nhận trong 24 giờ.", ct);
+        }
+
+        return stale.Count;
+    }
+
+    /// <summary>
+    /// docs/09 §3.6 — "Nhà cung cấp huỷ bất cứ lúc nào: hoàn 100% + số dư đền bù
+    /// + bị phạt". There was no way for a provider to pull out at all.
+    /// </summary>
+    public async Task<string?> ProviderCancelAsync(
+        int providerUserId, int bookingId, string? reason, CancellationToken ct)
+    {
+        var booking = await db.ServiceBookings
+            .Include(b => b.Offering).ThenInclude(o => o!.Host)
+            .FirstOrDefaultAsync(b => b.Id == bookingId, ct);
+        if (booking?.Offering?.Host?.UserId != providerUserId) return "Bạn không phải người nhận đơn này.";
+
+        var guest = await db.Users.FirstOrDefaultAsync(u => u.Id == booking.GuestUserId, ct);
+
+        // Not yet accepted: that is a decline, not a cancellation.
+        if (booking.Status == ServiceBookingStatus.Requested)
+        {
+            await DeclineAsync(booking, guest,
+                string.IsNullOrWhiteSpace(reason) ? "Nhà cung cấp không nhận đơn này." : reason.Trim(), ct);
+            return null;
+        }
+
+        if (booking.Status != ServiceBookingStatus.Confirmed) return "Đơn này không còn hiệu lực.";
+
+        var now = DateTime.UtcNow;
+        if (booking.StartsAt <= now) return "Buổi làm đã bắt đầu; hãy báo sự cố thay vì huỷ.";
+
+        var why = string.IsNullOrWhiteSpace(reason) ? "Nhà cung cấp đã huỷ đơn." : reason.Trim();
+        booking.Status = ServiceBookingStatus.CancelledByProvider;
+        booking.RefundedAmount = booking.Total;
+        booking.CancelReason = why;
+        booking.CancelledAt = now;
+
+        db.LedgerEntries.AddRange(Ledger.RefundService(booking, booking.Total, now));
+
+        var credit = ServiceRules.ProviderCancelCredit(booking.Total);
+        if (credit > 0)
+        {
+            db.CreditEntries.Add(CreditLedger.Grant(
+                booking.GuestUserId, credit, CreditReason.Goodwill,
+                $"Đền bù vì nhà cung cấp huỷ đơn {booking.Reference}", now));
+            db.LedgerEntries.AddRange(Ledger.GrantCredit(null, credit, $"Đền bù huỷ dịch vụ {booking.Reference}", now));
+        }
+
+        var fine = HostPenalties.For(booking.Subtotal, booking.StartsAt, now);
+        if (fine > 0) booking.Offering.Host.OwedToPlatform += fine;
+
+        await db.SaveChangesAsync(ct);
+        await SendRefundAsync(booking, booking.Total, ct);
+
+        await notifications.QueueWithEmailAsync(guest, NotificationKind.BookingCancelled,
+            "Nhà cung cấp đã huỷ đơn dịch vụ",
+            $"{why} Toàn bộ {booking.Total:#,##0}₫ được hoàn lại" +
+            (credit > 0 ? $", kèm {credit:#,##0}₫ số dư Staylio đền bù." : "."),
+            "/services/bookings", ct);
+
+        if (fine > 0)
+        {
+            var provider = await db.Users.FirstOrDefaultAsync(u => u.Id == providerUserId, ct);
+            await notifications.QueueWithEmailAsync(provider, NotificationKind.System,
+                "Phí phạt huỷ đơn dịch vụ", HostPenalties.Notice(fine, booking.Reference),
+                "/hosting?tab=earnings", ct);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return null;
     }
 
     public async Task<string?> CancelAsync(int userId, int bookingId, CancellationToken ct)
@@ -615,7 +781,7 @@ public class ServiceMarketService(
             .Select(b => new
             {
                 b.Id, b.Reference, b.StartsAt, b.DurationMinutes, b.Quantity,
-                b.Address, b.Note, b.Total, b.ProviderPayout, b.Status, b.CancelReason,
+                b.Address, b.Note, b.Total, b.ProviderPayout, b.Status, b.CancelReason, b.RespondBy,
                 Title = b.Offering!.Title,
                 Pricing = b.Offering.Pricing,
                 Guest = b.GuestUser!.DisplayName ?? b.GuestUser.FullName ?? "Khách",
@@ -641,7 +807,13 @@ public class ServiceMarketService(
                 // button is never offered that the server would then refuse.
                 CanReportMisdeclared:
                 r.Status is ServiceBookingStatus.Confirmed or ServiceBookingStatus.Requested
-                && now >= r.StartsAt);
+                && now >= r.StartsAt)
+            {
+                CanRespond = r.Status == ServiceBookingStatus.Requested,
+                RespondBy = r.RespondBy,
+                CanCancel = r.Status is ServiceBookingStatus.Confirmed or ServiceBookingStatus.Requested
+                            && r.StartsAt > now
+            };
         }).ToList();
     }
 

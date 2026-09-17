@@ -71,7 +71,7 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (17/09/2026).** 1268 test nghiệp vụ + **24 test tầng web**
+**Toàn bộ xanh (17/09/2026).** 1286 test nghiệp vụ + **24 test tầng web**
 (`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
 đời) · **35/35** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
@@ -180,6 +180,8 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
 | Mã trạng thái đúng cho từng địa chỉ | `SpaRoutes` + `PageExistence`: địa chỉ không có trang nào phía sau trả **404** thay vì 200 kèm shell rỗng. Địa chỉ dưới `/api/` không khớp controller trả 404 **rỗng**, không trả HTML — trả HTML là cách một lời gọi sai động từ đọc thành thành công. Trang `NotFound` có `noindex, follow`, và app tự gỡ thẻ đó khi rời trang |
 | Thẻ chia sẻ do máy chủ sinh | `ShellSeo.cs` thay khối `<!--seo:start-->…<!--seo:end-->` của `index.html` theo từng địa chỉ, **ngay câu trả lời đầu tiên**: tiêu đề, mô tả, canonical, `og:url`, `og:image`. Facebook/Zalo/Messenger không chạy JS nên đây là bản duy nhất chúng đọc. Ảnh mặc định `wwwroot/og-default.png` (1200×630); tin đăng dùng ảnh của chính nó |
 | Người đang trên sàn | Trang quản trị đếm **số người đang truy cập** theo cookie phiên `sh_sid` — khách chưa đăng nhập cũng tính, vì phần lớn lưu lượng của một sàn đặt phòng là người chưa có tài khoản. Cửa sổ 5 phút (`Presence.Window`), tách **đã đăng nhập / khách**, kèm đỉnh kể từ lần khởi động. Đếm **trong bộ nhớ** (`PresenceTracker`), không ghi bảng: đây là đường ghi bận nhất của app mà con số thì không ai cần giữ lại. Bot bị loại ba lớp — User-Agent, đường máy gọi máy (`/health`, IPN của cổng thanh toán), và **cookie phải được gửi trả lại** (crawler không giữ cookie nên mỗi request của nó là một danh tính mới) |
+| Phí phạt tự huỷ | Chủ nhà / người dẫn / nhà cung cấp tự huỷ đơn đã xác nhận thì bị phạt **10% / 25% / 50%** (còn >30 ngày / 2–30 ngày / <48 giờ) trên tiền phòng-vé-dịch vụ. **Đặc tả không có số — đây là mức của Airbnb, khách chưa chốt**; đổi ở `HostPenalty:` (`HostPenalties.cs`). Ghi vào `OwedToPlatform`, không bút toán lúc phạt |
+| Thông tin chuyến đi | Giờ đến dự kiến, đặt cho người khác, chuyến công tác, yêu cầu đặc biệt (danh sách cố định trong `StayDetails.cs`, frontend `components/StayDetailsFields.jsx` giữ **cùng bộ khoá**). Chủ nhà thấy ở danh sách đơn + thông báo; khách sửa ở `PUT /api/bookings/{id}/details` khi đơn còn chờ/đã xác nhận |
 | Hiếm có & sắp hết phòng | `Scarcity.cs` là **một ngưỡng cho hai chỗ**: dấu "Hiếm có" trên trang chi tiết (`TĐ-23`) và thông báo "sắp hết phòng" cho chỗ đã lưu (`YT-08`). Dưới 25% đêm trống trong 60 ngày tới, và bỏ qua khi cửa sổ chưa đủ 14 đêm — tin mới khoá sạch lịch là *trống*, không phải *đắt khách*. `ScarcitySweeper` chỉ báo **lúc vượt ngưỡng**, cột `LowAvailabilityNotifiedAt` xoá về null khi lịch mở lại |
 
 ---
@@ -956,7 +958,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ## 6. Kiểm chứng trước khi commit
 
 ```bash
-dotnet test tests/StayHost.Domain.Tests            # 1268 test nghiệp vụ
+dotnet test tests/StayHost.Domain.Tests            # 1286 test nghiệp vụ
 dotnet test tests/StayHost.Web.Tests               # 24 test tầng web (GatewayReply, PublicNetworkOnly)
 python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13

@@ -1439,9 +1439,34 @@ trên prod** và trang chủ nhà không đọc `?tab=`; nhãn trợ năng, nhã
 quyết/Xử lý, chính sách huỷ, câu ngày linh hoạt giờ đi qua từ điển; chữ
 "docs/0x" không còn lọt ra màn hình khách và chủ nhà.
 
-**Cố ý để lại:** khoản phạt chủ nhà huỷ (chưa có số), phạt người dẫn trải nghiệm
-huỷ suất (chưa có số), chế độ "chờ nhà cung cấp xác nhận" của dịch vụ
-(`docs/09 §3.5`), 3 hạng mục khi chủ nhà chấm khách (`docs/03 §7`).
+**Làm tiếp cùng ngày (khách bảo "làm luôn"):**
+- **Phí phạt khi chủ nhà / người dẫn / nhà cung cấp tự huỷ.** Đặc tả không có số,
+  nên dùng **mức của Airbnb**: 10% nếu còn hơn 30 ngày, 25% nếu còn 2–30 ngày, 50%
+  nếu dưới 48 giờ, tính trên tiền phòng/vé/dịch vụ (không gồm phí và thuế). Nằm ở
+  `HostPenalty:` trong `appsettings.json` (`HostPenalties.cs`), ghi vào
+  `OwedToPlatform` và trừ vào lần chuyển tiền kế tiếp — cùng cơ chế với
+  chargeback, **không có bút toán lúc phạt**. Khách đổi số thì chỉ sửa cấu hình.
+- **Dịch vụ "chờ nhà cung cấp xác nhận"** (`docs/09 §3.5`): ô chọn trong trình
+  sửa dịch vụ; đơn vào trạng thái yêu cầu, nhà cung cấp có **24 giờ** để nhận hay
+  từ chối, quá hạn thì tự từ chối; từ chối/hết hạn → **hoàn đủ**. Nhà cung cấp huỷ
+  đơn đã xác nhận → hoàn đủ + **10% số dư** cho khách (`docs/09 §3.6`) + phí phạt.
+- **Chủ nhà chấm khách ba mục** (`docs/03 §7`): sạch sẽ / giao tiếp / tuân thủ nội
+  quy, bắt buộc cả ba, điểm tổng là trung bình; trang hồ sơ khách hiện ba điểm và
+  % chủ nhà sẵn lòng đón lại.
+- ~90 thông báo và nhãn quản trị có bản dịch đủ 7 thứ tiếng.
+- `EmailDispatcher` đóng dấu `TranslatedAt` trong `finally` (một thư có thể bị hai
+  vòng dịch cùng nhặt).
+
+`audit0917_acceptance.py` thêm L8–L11 cho bốn việc trên: **19/19** local.
+
+**Đối chiếu Booking.com — thông tin chuyến đi.** Lúc đặt, khách chọn **giờ đến dự
+kiến** (khung một giờ), **đặt cho người khác** (tên người lưu trú), **chuyến công
+tác**, và **yêu cầu đặc biệt** từ danh sách cố định (phòng yên tĩnh, tầng cao, cũi
+em bé, giường phụ, nhận sớm, trả muộn, lối xe lăn, đón sân bay — `StayDetails.cs`;
+khoá lạ bị **từ chối có tên**). Chủ nhà đọc được ở danh sách đơn và trong thông báo
+đơn mới; khách sửa được trên trang chuyến đi khi chuyến còn phía trước, và chủ nhà
+được báo. Không phải lời hứa: không tính tiền, không chặn đặt. Kịch bản H10 (chạy
+được cả prod): **20/20** local.
 
 ---
 

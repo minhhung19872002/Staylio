@@ -393,13 +393,15 @@ function expandRange(fromIso, toIso, inclusive) {
 export function GuestReviewModal() {
   const state = useStore();
   const b = state.guestReviewBooking;
-  const [draft, setDraft] = useState({ rating: 5, wouldHostAgain: true });
+  // docs/03 §7 — "sạch sẽ, giao tiếp, tuân thủ nội quy"; the server averages them.
+  const [draft, setDraft] = useState({ cleanliness: 5, communication: 5, houseRules: 5, wouldHostAgain: true });
   if (!b) return null;
 
   const submit = async e => {
     e.preventDefault();
     try {
-      await api.reviewGuest(b.id, { ...draft, text: e.currentTarget.text.value.trim() });
+      const rating = Math.round((draft.cleanliness + draft.communication + draft.houseRules) / 3 * 100) / 100;
+      await api.reviewGuest(b.id, { ...draft, rating, text: e.currentTarget.text.value.trim() });
       set({ overlay: null, guestReviewBooking: null });
       toast('Đã gửi đánh giá khách.');
       await loadHosting();
@@ -418,13 +420,18 @@ export function GuestReviewModal() {
       <form onSubmit={submit}>
         <div style={{ padding: '18px 0', borderBottom: '1px solid var(--divider)' }}>
           <b style={{ fontSize: 15 }}>{t('Khách này thế nào?')}</b>
-          <div className="star-row" style={{ marginTop: 10 }}>
-            {[1, 2, 3, 4, 5].map(n => (
-              <button type="button" key={n} aria-label={`${n} ${t('sao')}`}
-                      className={`star ${n <= draft.rating ? 'is-on' : ''}`}
-                      onClick={() => setDraft(d => ({ ...d, rating: n }))}>★</button>
-            ))}
-          </div>
+          {[['cleanliness', 'Sạch sẽ'], ['communication', 'Giao tiếp'], ['houseRules', 'Tuân thủ nội quy']].map(([key, label]) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+              <span style={{ fontSize: 14 }}>{t(label)}</span>
+              <div className="star-row">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button type="button" key={n} aria-label={`${t(label)} ${n} ${t('sao')}`}
+                          className={`star ${n <= draft[key] ? 'is-on' : ''}`}
+                          onClick={() => setDraft(d => ({ ...d, [key]: n }))}>★</button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="count-row">

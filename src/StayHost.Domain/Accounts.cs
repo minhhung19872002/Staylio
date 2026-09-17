@@ -506,6 +506,16 @@ public class GuestReview
     public User? GuestUser { get; set; }
 
     public double Rating { get; set; } = 5;
+
+    /// <summary>
+    /// docs/03 §7 — "Chủ nhà chấm khách: sạch sẽ, giao tiếp, tuân thủ nội quy".
+    /// Null on reviews written before the three headings existed; the overall
+    /// rating is their average whenever they are given.
+    /// </summary>
+    public int? Cleanliness { get; set; }
+    public int? Communication { get; set; }
+    public int? HouseRules { get; set; }
+
     public string Text { get; set; } = "";
     public bool WouldHostAgain { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

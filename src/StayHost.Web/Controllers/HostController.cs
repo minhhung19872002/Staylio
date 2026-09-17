@@ -400,12 +400,25 @@ public class HostController(
         var guard = ContentGuard.CheckReview(text);
         if (!guard.Ok) return BadRequest(new { message = guard.Message });
 
+        // docs/03 §7 — "Chủ nhà chấm khách: sạch sẽ, giao tiếp, tuân thủ nội quy".
+        // All three are asked for; the overall rating is their average, so a host
+        // cannot give a single number that disagrees with the three.
+        int? Score(int? v) => v is { } n ? Math.Clamp(n, 1, 5) : null;
+        var cleanliness = Score(req.Cleanliness);
+        var communication = Score(req.Communication);
+        var houseRules = Score(req.HouseRules);
+        if (cleanliness is null || communication is null || houseRules is null)
+            return BadRequest(new { message = "Chấm đủ ba mục: sạch sẽ, giao tiếp và tuân thủ nội quy." });
+
         db.GuestReviews.Add(new GuestReview
         {
             BookingId = id,
             HostUserId = user.Id,
             GuestUserId = guestId,
-            Rating = Math.Clamp(req.Rating, 1, 5),
+            Cleanliness = cleanliness,
+            Communication = communication,
+            HouseRules = houseRules,
+            Rating = Math.Round((cleanliness.Value + communication.Value + houseRules.Value) / 3.0, 2),
             Text = text,
             WouldHostAgain = req.WouldHostAgain
         });
@@ -1180,5 +1193,8 @@ public class HostController(
         change is null ? null : new PendingChangeDto(
             change.Id, change.NewCheckIn, change.NewCheckOut, change.NewGuests,
             change.Difference, ChangeRequests.DiffLabel(change.Difference)),
-        b.PaidAtProperty, b.CashCollectedAt, b.GuestPhone);
+        b.PaidAtProperty, b.CashCollectedAt, b.GuestPhone)
+    {
+        Details = StayDetailsDto.Of(b)
+    };
 }

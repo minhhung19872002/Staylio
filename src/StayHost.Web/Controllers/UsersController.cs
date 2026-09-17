@@ -84,6 +84,26 @@ public class UsersController(StayHostDbContext db, CatalogService catalog) : Con
             })
             .ToListAsync(ct);
 
+        // docs/03 §7 — the three headings hosts score a guest on, averaged over
+        // everything published about them.
+        var scored = await db.GuestReviews
+            .Where(r => r.GuestUserId == user.Id && r.PublishedAt != null)
+            .Select(r => new { r.Cleanliness, r.Communication, r.HouseRules, r.WouldHostAgain })
+            .ToListAsync(ct);
+
+        static double? Avg(IEnumerable<int?> xs)
+        {
+            var given = xs.Where(x => x.HasValue).Select(x => (double)x!.Value).ToList();
+            return given.Count == 0 ? null : Math.Round(given.Average(), 1);
+        }
+
+        var guestScores = scored.Count == 0 ? null : new GuestScoresDto(
+            scored.Count,
+            Avg(scored.Select(r => r.Cleanliness)),
+            Avg(scored.Select(r => r.Communication)),
+            Avg(scored.Select(r => r.HouseRules)),
+            (int)Math.Round(100.0 * scored.Count(r => r.WouldHostAgain) / scored.Count));
+
         return Ok(new PublicProfileDto(
             user.Id,
             displayName,
@@ -120,6 +140,6 @@ public class UsersController(StayHostDbContext db, CatalogService catalog) : Con
                         Profiles.MonthLabel(r.CreatedAt),
                         r.Text, Math.Round(r.Rating, 1), r.ListingTitle, r.ListingSlug);
                 })
-                .ToList()));
+                .ToList()) { GuestScores = guestScores });
     }
 }

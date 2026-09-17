@@ -121,8 +121,9 @@ public class PaymentCompletion(
         await notifications.QueueWithEmailAsync(hostUser, NotificationKind.BookingConfirmed,
             "Bạn có lượt đặt mới",
             $"{booking.GuestName} đặt \"{listing.Title}\" từ {booking.CheckIn:dd/MM} đến {booking.CheckOut:dd/MM} " +
-            $"({booking.Nights} đêm, {booking.Guests} khách).",
-            "/hosting", ct);
+            $"({booking.Nights} đêm, {booking.Guests} khách)." +
+            string.Concat(StayDetails.Sentences(booking).Select(s => " " + s)),
+            "/hosting?tab=bookings", ct);
 
         var line = $"Mã đặt chỗ {booking.Reference} · {listing.Title} · {booking.Nights} đêm.";
 

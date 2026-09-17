@@ -177,6 +177,11 @@ export const state = {
   /** docs/07 §2.5 — how a host reaches somebody who booked with no account. */
   checkoutPhone: '',
   checkoutNote: '',
+  /** Arrival hour, who is staying, work trip, special requests — told to the host. */
+  checkoutDetails: {
+    estimatedArrivalHour: null, forSomeoneElse: false, stayingGuestName: '',
+    isBusinessTrip: false, specialRequests: []
+  },
   cancelPreview: null,
 
   // hosting
@@ -826,6 +831,11 @@ export async function holdDates(extra = {}) {
       // is stamped server-side; until 05/09/2026 neither field was ever sent,
       // which is why every booking's snapshot was null.
       displayCurrency: state.currency.code,
+      estimatedArrivalHour: state.checkoutDetails.estimatedArrivalHour,
+      stayingGuestName: state.checkoutDetails.forSomeoneElse
+        ? (state.checkoutDetails.stayingGuestName.trim() || null) : null,
+      isBusinessTrip: state.checkoutDetails.isBusinessTrip,
+      specialRequests: state.checkoutDetails.specialRequests,
       ...extra
     });
     set({ held });

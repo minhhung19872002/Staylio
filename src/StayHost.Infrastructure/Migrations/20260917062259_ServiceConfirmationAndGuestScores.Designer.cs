@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using StayHost.Infrastructure;
@@ -11,9 +12,11 @@ using StayHost.Infrastructure;
 namespace StayHost.Infrastructure.Migrations
 {
     [DbContext(typeof(StayHostDbContext))]
-    partial class StayHostDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917062259_ServiceConfirmationAndGuestScores")]
+    partial class ServiceConfirmationAndGuestScores
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -535,9 +538,6 @@ namespace StayHost.Infrastructure.Migrations
                     b.Property<decimal?>("DisplayRate")
                         .HasColumnType("numeric");
 
-                    b.Property<int?>("EstimatedArrivalHour")
-                        .HasColumnType("integer");
-
                     b.Property<decimal>("ExtraGuestFee")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");
@@ -581,9 +581,6 @@ namespace StayHost.Infrastructure.Migrations
 
                     b.Property<int>("Infants")
                         .HasColumnType("integer");
-
-                    b.Property<bool>("IsBusinessTrip")
-                        .HasColumnType("boolean");
 
                     b.Property<int>("ListingId")
                         .HasColumnType("integer");
@@ -648,14 +645,8 @@ namespace StayHost.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<string>("SpecialRequests")
-                        .HasColumnType("text");
-
                     b.Property<int>("Status")
                         .HasColumnType("integer");
-
-                    b.Property<string>("StayingGuestName")
-                        .HasColumnType("text");
 
                     b.Property<decimal>("Subtotal")
                         .HasPrecision(12, 2)

@@ -616,6 +616,15 @@ public class Booking
 
     public string? GuestNote { get; set; }
 
+    /* ------------------------------------------- StayDetails — told to the host */
+    /// <summary>Local hour the guest expects to arrive, 0–23; null when not said.</summary>
+    public int? EstimatedArrivalHour { get; set; }
+    /// <summary>Who is actually staying, when the booker books for somebody else.</summary>
+    public string? StayingGuestName { get; set; }
+    public bool IsBusinessTrip { get; set; }
+    /// <summary>Comma-joined keys of <see cref="StayDetails.Requests"/>.</summary>
+    public string? SpecialRequests { get; set; }
+
     /// <summary>
     /// docs/07 §2.5 — the guest settles with the host on arrival, so Staylio
     /// never holds this money.

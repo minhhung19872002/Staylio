@@ -101,6 +101,12 @@ public class ServiceOffering
     // --- docs/09 §3.4 (MR-S-05): the working week and how tightly it may pack.
     /// <summary>Bitmask, Monday = 1 &lt;&lt; 0 … Sunday = 1 &lt;&lt; 6. 127 = every day.</summary>
     public int WorkingDaysMask { get; set; } = 127;
+    /// <summary>
+    /// docs/09 §3.5 — "đặt ngay hoặc chờ nhà cung cấp xác nhận — cho nhà cung cấp
+    /// chọn". Off means instant booking, the behaviour before this existed.
+    /// </summary>
+    public bool RequiresConfirmation { get; set; }
+
     /// <summary>Rest and clean-up between two jobs; 0 falls back to the platform default.</summary>
     public int BufferMinutes { get; set; }
     /// <summary>0 means no daily cap.</summary>
@@ -293,6 +299,12 @@ public class ServiceBooking
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CancelledAt { get; set; }
+
+    /// <summary>
+    /// docs/09 §3.5 — a paid job waiting on the provider's yes. Past this, the
+    /// sweep declines it for them and the guest gets everything back.
+    /// </summary>
+    public DateTime? RespondBy { get; set; }
 
     // docs/09 §4 (MR-C-03) — the provider is paid a day after the session ends.
     public PayoutStatus PayoutStatus { get; set; } = PayoutStatus.Scheduled;
@@ -632,8 +644,22 @@ public static class ServiceRules
     /// docs/09 §3.6 — a guest cancelling their own job: 100% at least 72 hours
     /// out, 50% between 24 and 72 hours, nothing inside the last day.
     /// </summary>
+    /// <summary>docs/09 §3.5 — how long a provider has to accept a job that waits on them.</summary>
+    public static readonly TimeSpan ConfirmationWindow = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// docs/09 §3.6 — "Nhà cung cấp huỷ bất cứ lúc nào: hoàn 100% + số dư đền
+    /// bù + bị phạt". No DV parameter is given for the balance, so it is the
+    /// same share the experience table fixes (TN-D).
+    /// </summary>
+    public static decimal ProviderCancelCredit(decimal total) =>
+        Math.Round(total * ExperienceRules.ProviderCancelCreditRate, 0, MidpointRounding.AwayFromZero);
+
     public static decimal GuestRefund(ServiceBooking booking, DateTime now)
     {
+        // A job the provider never accepted was never theirs to lose.
+        if (booking.Status == ServiceBookingStatus.Requested) return booking.Total;
+
         var lead = booking.StartsAt - now;
 
         if (lead >= FullRefundLead) return booking.Total;

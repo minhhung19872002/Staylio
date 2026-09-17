@@ -457,7 +457,16 @@ public record PriceRuleDto(int Id, string Name, DateOnly From, DateOnly To, deci
 
 public record CreatePriceRuleRequest(int ListingId, string? Name, DateOnly From, DateOnly To, decimal NightlyRate);
 
-public record ReviewGuestRequest(double Rating, string Text, bool WouldHostAgain);
+/// <param name="Cleanliness">docs/03 §7 — sạch sẽ, 1–5.</param>
+/// <param name="Communication">docs/03 §7 — giao tiếp, 1–5.</param>
+/// <param name="HouseRules">docs/03 §7 — tuân thủ nội quy, 1–5.</param>
+public record ReviewGuestRequest(
+    double Rating, string Text, bool WouldHostAgain,
+    int? Cleanliness = null, int? Communication = null, int? HouseRules = null);
+
+/// <summary>docs/03 §7 — what hosts said about someone as a guest, heading by heading.</summary>
+public record GuestScoresDto(
+    int Reviews, double? Cleanliness, double? Communication, double? HouseRules, int WouldHostAgainPercent);
 
 public record CreateBlockRequest(int ListingId, DateOnly From, DateOnly To, string? Note);
 
@@ -563,7 +572,10 @@ public record HostBookingDto(
     /// <summary>docs/07 §2.5 — set once the host confirmed the cash is in hand.</summary>
     DateTime? CashCollectedAt = null,
     /// <summary>docs/07 §2.5 — a phone for a guest who booked without an account.</summary>
-    string? GuestPhone = null);
+    string? GuestPhone = null)
+{
+    public StayDetailsDto? Details { get; init; }
+}
 
 public record PendingChangeDto(
     int Id, DateOnly NewCheckIn, DateOnly NewCheckOut, int NewGuests,
@@ -1276,7 +1288,17 @@ public record ProviderJobDto(
     string StatusBadge,
     string? CancelReason,
     /// <summary>Whether docs/09 §3.6 (DV-D) may still be reported on this job.</summary>
-    bool CanReportMisdeclared);
+    bool CanReportMisdeclared)
+{
+    /// <summary>docs/09 §3.5 — waiting on this provider's yes, until <see cref="RespondBy"/>.</summary>
+    public bool CanRespond { get; init; }
+    public DateTime? RespondBy { get; init; }
+
+    /// <summary>docs/09 §3.6 — the provider may still pull out of this job.</summary>
+    public bool CanCancel { get; init; }
+}
+
+public record ProviderJobDecisionRequest(string? Reason);
 
 /// <summary>
 /// docs/01 TĐ-22 — what a host posts when writing one guidebook entry.
@@ -1560,7 +1582,27 @@ public record CreateBookingRequest(
     /// docs/07 §2.5 — how to reach somebody who booked without an account. An
     /// account already carries a phone; a stranger has to leave one.
     /// </summary>
-    string? GuestPhone = null);
+    string? GuestPhone = null,
+    /* StayDetails — told to the host, never priced. */
+    int? EstimatedArrivalHour = null,
+    string? StayingGuestName = null,
+    bool IsBusinessTrip = false,
+    IReadOnlyList<string>? SpecialRequests = null);
+
+/// <summary>The same details, corrected after booking while the stay is ahead.</summary>
+public record StayDetailsRequest(
+    int? EstimatedArrivalHour, string? StayingGuestName, bool IsBusinessTrip,
+    IReadOnlyList<string>? SpecialRequests);
+
+/// <summary>What the host and the guest read back: keys for the form, labels for the eye.</summary>
+public record StayDetailsDto(
+    int? EstimatedArrivalHour, string? ArrivalLabel, string? StayingGuestName,
+    bool IsBusinessTrip, IReadOnlyList<string> SpecialRequests, IReadOnlyList<string> SpecialRequestLabels)
+{
+    public static StayDetailsDto Of(StayHost.Domain.Booking b) => new(
+        b.EstimatedArrivalHour, StayHost.Domain.StayDetails.ArrivalLabel(b.EstimatedArrivalHour), b.StayingGuestName,
+        b.IsBusinessTrip, StayHost.Domain.StayDetails.Keys(b.SpecialRequests), StayHost.Domain.StayDetails.Labels(b.SpecialRequests));
+}
 
 /// <summary>docs/07 §2.5 — what the host just recorded, and what it costs them in fees.</summary>
 public record CashCollectedDto(
@@ -1654,6 +1696,7 @@ public record BookingDto(
     public int Children { get; init; }
     public int Infants { get; init; }
     public int Pets { get; init; }
+    public StayDetailsDto? Details { get; init; }
 }
 
 public record BookingEventDto(
@@ -2162,7 +2205,9 @@ public record ServiceDetailDto(
     int HostYears = 0,
     string? HostBio = null,
     bool HostIsSuperhost = false,
-    int? HostUserId = null);
+    int? HostUserId = null,
+    /// <summary>docs/09 §3.5 — the provider accepts each job before it is confirmed.</summary>
+    bool RequiresConfirmation = false);
 
 public record ServiceQuoteDto(
     int OfferingId,
@@ -2374,7 +2419,8 @@ public record SaveServiceRequest(
     IReadOnlyList<string>? OnSiteRequirements = null,
     IReadOnlyList<SaveServiceAddOnRequest>? AddOns = null,
     string? CertificateName = null,
-    DateOnly? CertificateExpiresOn = null);
+    DateOnly? CertificateExpiresOn = null,
+    bool RequiresConfirmation = false);
 
 /* ---- docs/09 §4 (MR-C-02): cross-sell from a stay ------------------------ */
 
@@ -2675,7 +2721,10 @@ public record PublicProfileDto(
     /// <summary>Written by guests about their places (docs/02 C6 "từ hai phía").</summary>
     IReadOnlyList<ProfileReviewDto> ReviewsAsHost,
     /// <summary>Written by hosts about them as a guest.</summary>
-    IReadOnlyList<ProfileReviewDto> ReviewsAsGuest);
+    IReadOnlyList<ProfileReviewDto> ReviewsAsGuest)
+{
+    public GuestScoresDto? GuestScores { get; init; }
+}
 
 /* ------------------------------------------------ docs/01 CN-08 and CN-10 */
 

@@ -13,6 +13,7 @@ import { Today } from './hosting/Today.jsx';
 import { Payout, SuperhostProgress } from './hosting/Payout.jsx';
 import { MultiCalendar } from './hosting/MultiCalendar.jsx';
 import { Team } from './hosting/Team.jsx';
+import { StayDetailsSummary } from '../components/StayDetailsFields.jsx';
 
 const TABS = [
   ['today', 'Hôm nay'], ['overview', 'Tổng quan'], ['listings', 'Chỗ nghỉ'],
@@ -522,6 +523,37 @@ function ProviderJobs() {
     finally { setBusy(0); }
   };
 
+  // docs/09 §3.5 — a job waiting on this provider's yes.
+  const respond = async (job, accept) => {
+    let reason = null;
+    if (!accept) {
+      reason = prompt(t('Lý do từ chối (khách sẽ thấy)'));
+      if (reason === null) return;
+    }
+    setBusy(job.id);
+    try {
+      if (accept) await api.acceptServiceJob(job.id);
+      else await api.declineServiceJob(job.id, reason.trim() || null);
+      await load();
+      toast(accept ? t('Đã xác nhận đơn.') : t('Đã từ chối. Khách được hoàn toàn bộ.'));
+    } catch (err) { toast(err.message); }
+    finally { setBusy(0); }
+  };
+
+  // docs/09 §3.6 — pulling out of a confirmed job refunds the guest in full,
+  // gives them balance on top, and costs the provider a fine. Said first.
+  const cancel = async job => {
+    const reason = prompt(t('Huỷ đơn này? Khách được hoàn toàn bộ kèm số dư đền bù, và bạn chịu phí phạt huỷ. Lý do:'));
+    if (reason === null) return;
+    setBusy(job.id);
+    try {
+      await api.cancelServiceJob(job.id, reason.trim() || null);
+      await load();
+      toast(t('Đã huỷ đơn.'));
+    } catch (err) { toast(err.message); }
+    finally { setBusy(0); }
+  };
+
   if (!jobs?.length) return null;
 
   return (
@@ -552,11 +584,26 @@ function ProviderJobs() {
               </div>
               <span className={`badge ${j.statusBadge}`} style={{ marginTop: 8 }}>{t(j.statusLabel)}</span>
               {j.cancelReason && <div className="meta" style={{ marginTop: 6 }}>{t(j.cancelReason)}</div>}
+              {j.canRespond && j.respondBy && (
+                <div className="meta" style={{ marginTop: 6 }}>{t('Trả lời trước')} {dateTime(j.respondBy)}</div>
+              )}
             </div>
-            {j.canReportMisdeclared && (
+            {(j.canReportMisdeclared || j.canRespond || j.canCancel) && (
               <div className="host-booking-actions">
-                <button className="btn btn-outline btn-sm" disabled={busy === j.id}
-                        onClick={() => misdeclared(j)}>{t('Không đủ điều kiện tại chỗ')}</button>
+                {j.canRespond && <>
+                  <button className="btn btn-primary btn-sm" disabled={busy === j.id}
+                          onClick={() => respond(j, true)}>{t('Xác nhận')}</button>
+                  <button className="btn btn-outline btn-sm" disabled={busy === j.id}
+                          onClick={() => respond(j, false)}>{t('Từ chối')}</button>
+                </>}
+                {j.canCancel && !j.canRespond && (
+                  <button className="btn btn-outline btn-sm" disabled={busy === j.id}
+                          onClick={() => cancel(j)}>{t('Huỷ đơn')}</button>
+                )}
+                {j.canReportMisdeclared && (
+                  <button className="btn btn-outline btn-sm" disabled={busy === j.id}
+                          onClick={() => misdeclared(j)}>{t('Không đủ điều kiện tại chỗ')}</button>
+                )}
               </div>
             )}
           </article>
@@ -1021,6 +1068,8 @@ function BookingRow({ booking: b, navigate }) {
         <div className="meta">
           {longDate(b.checkIn)} → {longDate(b.checkOut)} · {b.nights} {t('đêm')} · {b.guests} {t('khách')}
         </div>
+        <StayDetailsSummary details={b.details} />
+        {b.guestNote && <div className="meta">{t('Lời nhắn:')} <i>{b.guestNote}</i></div>}
         <div className="meta">
           {t('Khách trả')} <b style={{ color: 'var(--ink)' }}>{money(b.total)}</b> ·
           {' '}{t('bạn nhận')} <b style={{ color: 'var(--brand)' }}>{money(b.hostPayout)}</b>

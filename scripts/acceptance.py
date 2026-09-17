@@ -369,7 +369,8 @@ st9a, r9a = call(guest, f"/api/bookings/{request['id']}/review",
                   "location": 5, "value": 5, "privateNote": None})
 _, mid9 = call(anon, f"/api/listings/{req_listing['slug']}")
 st9b, r9b = call(owner, f"/api/host/bookings/{request['id']}/review-guest",
-                 {"rating": 5, "text": "Khách giữ gìn nhà cửa, trao đổi rõ ràng.", "wouldHostAgain": True})
+                 {"rating": 5, "text": "Khách giữ gìn nhà cửa, trao đổi rõ ràng.", "wouldHostAgain": True,
+                  "cleanliness": 5, "communication": 5, "houseRules": 4})
 _, after9 = call(anon, f"/api/listings/{req_listing['slug']}")
 blind_held = len(mid9['reviews']) == len(before9['reviews'])
 published = len(after9['reviews']) == len(before9['reviews']) + 1
