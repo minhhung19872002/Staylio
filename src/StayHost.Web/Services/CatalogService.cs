@@ -6,7 +6,7 @@ using StayHost.Web.Contracts;
 namespace StayHost.Web.Services;
 
 /// <summary>Everything the browse / detail pages need, in one place.</summary>
-public class CatalogService(StayHostDbContext db)
+public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
 {
     public static readonly (PlaceType Type, string Key, string Label, string Icon)[] Categories =
     [
@@ -908,12 +908,16 @@ public class CatalogService(StayHostDbContext db)
         private readonly StayWindow _default;
         private readonly PartySize _party;
 
+        /// <summary>The viewer's Staylio Thân thiết level; a card is priced for who is reading it.</summary>
+        public int LoyaltyLevel { get; }
+
         public StayPricer(
             DateOnly checkIn, DateOnly checkOut, PartySize party,
             IEnumerable<PriceRule> rules, IReadOnlyCollection<TaxRule> taxRules,
             Dictionary<int, int> soldStaysByListing,
-            IReadOnlyDictionary<int, StayWindow>? matched = null)
+            IReadOnlyDictionary<int, StayWindow>? matched = null, int loyaltyLevel = 0)
         {
+            LoyaltyLevel = loyaltyLevel;
             _default = new StayWindow(checkIn, checkOut);
             _party = party;
             _taxRules = taxRules;
@@ -939,7 +943,8 @@ public class CatalogService(StayHostDbContext db)
                 Party = _party,
                 PriceRules = _rulesByListing.GetValueOrDefault(l.Id, []),
                 TaxRules = _taxRules,
-                ListingBookingCount = _soldStaysByListing.GetValueOrDefault(l.Id, 0)
+                ListingBookingCount = _soldStaysByListing.GetValueOrDefault(l.Id, 0),
+                LoyaltyPercent = Loyalty.PercentFor(LoyaltyLevel, l.LoyaltyDiscountPercent)
             }).Total;
         }
     }
@@ -971,7 +976,8 @@ public class CatalogService(StayHostDbContext db)
             .Select(g => new { ListingId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.ListingId, x => x.Count, ct);
 
-        return new StayPricer(checkIn.Value, checkOut.Value, party, rules, taxRules, soldStays, mine);
+        return new StayPricer(checkIn.Value, checkOut.Value, party, rules, taxRules, soldStays, mine,
+            await loyalty.ViewerLevelAsync(ct));
     }
 
     private static DateOnly Min(DateOnly a, DateOnly b) => a < b ? a : b;
@@ -1021,7 +1027,9 @@ public class CatalogService(StayHostDbContext db)
         FromCentreKm = Landmarks.FromCentreKm(l.City, l.Latitude, l.Longitude) is { } km ? Math.Round(km, 1) : null,
         FromCentreLabel = Landmarks.FromCentreKm(l.City, l.Latitude, l.Longitude) is { } d
             ? $"Cách trung tâm {Landmarks.DistanceLabel(d)}" : null,
-        PayAtProperty = l.AcceptsPayAtProperty
+        PayAtProperty = l.AcceptsPayAtProperty,
+        LoyaltyOffer = l.LoyaltyDiscountPercent,
+        LoyaltyPercent = Loyalty.PercentFor(pricer?.LoyaltyLevel ?? 0, l.LoyaltyDiscountPercent)
     };
 
     public async Task<HashSet<int>> HelpfulVotesAsync(string voterKey, List<int> reviewIds, CancellationToken ct) =>
@@ -1397,7 +1405,7 @@ public class CatalogService(StayHostDbContext db)
     public async Task<Pricing.Request?> BuildQuoteRequestAsync(
         int listingId, DateOnly checkIn, DateOnly checkOut, PartySize party, CancellationToken ct,
         int? excludeBookingId = null, int? roomTypeId = null, decimal? nightlyOverride = null,
-        RatePlan? plan = null)
+        RatePlan? plan = null, int loyaltyPercent = 0)
     {
         var l = await db.Listings.FirstOrDefaultAsync(x => x.Id == listingId, ct);
         if (l is null) return null;
@@ -1432,7 +1440,8 @@ public class CatalogService(StayHostDbContext db)
             TaxRules = await ActiveTaxRulesAsync(ct),
             ListingBookingCount = soldStays,
             NightlyRateOverride = roomRate,
-            Plan = plan ?? RatePlan.None
+            Plan = plan ?? RatePlan.None,
+            LoyaltyPercent = loyaltyPercent
         };
     }
 
@@ -1455,6 +1464,12 @@ public class CatalogService(StayHostDbContext db)
         var request = await BuildQuoteRequestAsync(
             listingId, checkIn, checkOut, party, ct, roomTypeId: roomTypeId, plan: plan);
         if (request is null) return null;
+
+        // The guest asking is the guest who will book: price it for their level.
+        request = request with
+        {
+            LoyaltyPercent = Loyalty.PercentFor(await loyalty.ViewerLevelAsync(ct), request.Listing.LoyaltyDiscountPercent)
+        };
 
         if (couponAmount > 0)
             request = request with { CouponAmount = couponAmount, CouponLabel = couponLabel ?? "Mã giảm giá" };

@@ -106,6 +106,7 @@ builder.Services.AddHttpContextAccessor();
 // between requests; see PresenceTracker for what that does and does not promise.
 builder.Services.AddSingleton<PresenceTracker>();
 builder.Services.AddScoped<CatalogService>();
+builder.Services.AddScoped<LoyaltyService>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.AddScoped<ReviewService>();
 builder.Services.AddScoped<BadgeService>();

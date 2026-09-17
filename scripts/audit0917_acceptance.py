@@ -734,6 +734,51 @@ def l_hotel_rate_plans():
        % (plain["total"], planned["total"], planned["breakfastFee"], planned["roomDiscount"], b["total"], t, bad))
 
 
+def l_loyalty_discount():
+    name = "L16. Staylio Thân thiết: khách đủ cấp được giảm, thẻ = báo giá = đơn, khách mới thì không"
+    lst = instant_listing()
+    lid = lst["id"]
+    old = sql('select "LoyaltyDiscountPercent" from listings where "Id"=%d' % lid)
+    sql('update listings set "LoyaltyDiscountPercent"=10 where "Id"=%d' % lid)
+    try:
+        loyal, loyal_id = register("loyal%s@staylio.vn" % RUN, "Khach Than Thiet")
+        fresh, _ = register("newbie%s@staylio.vn" % RUN, "Khach Moi")
+        # Three completed stays in the window, planted the way the other fixtures do.
+        # Only the owner moves; the dates stay, so no stay collides with another.
+        donors = sql('select "Id" from bookings where "Status"=4 and "ListingId"<>%d '
+                     'and "CheckOut" >= (now() at time zone \'utc\')::date - 700 '
+                     'order by "Id" desc limit 3' % lid).split()
+        if len(donors) < 3:
+            return skip(name, "chưa đủ đơn đã hoàn tất để dựng khách cấp 2")
+        sql('update bookings set "GuestUserId"=%d where "Id" in (%s)' % (loyal_id, ",".join(donors)))
+        _, level = call(loyal, "/api/account/loyalty")
+        _, fresh_level = call(fresh, "/api/account/loyalty")
+        ci = today() + datetime.timedelta(days=200 + int(RUN) % 30)
+        co = ci + datetime.timedelta(days=2)
+        q = "/api/quote?listingId=%d&checkIn=%s&checkOut=%s&adults=2" % (lid, ci, co)
+        _, loyal_quote = call(loyal, q)
+        _, fresh_quote = call(fresh, q)
+        _, cards = call(loyal, "/api/listings?pageSize=60&checkIn=%s&checkOut=%s&guests=2" % (ci, co))
+        card = next((c for c in cards["items"] if c["id"] == lid), {})
+        st, b = hold(loyal, lid, 200 + int(RUN) % 30)
+        booked = sql('select "LoyaltyPercent" from bookings where "Id"=%d' % b["id"]) if st in (200, 201) else None
+        if st in (200, 201):
+            call(loyal, "/api/bookings/%d/release" % b["id"], m="POST")
+        same_dates = st in (200, 201) and b["checkIn"] == ci.isoformat()
+        ok(name,
+           level["level"] == 2 and fresh_level["level"] == 1
+           and any(l["key"] == "discount" and "thân thiết" in l["label"] for l in loyal_quote["lines"])
+           and not any("thân thiết" in l["label"] for l in fresh_quote["lines"])
+           and loyal_quote["total"] < fresh_quote["total"]
+           and card.get("loyaltyPercent") == 10 and card.get("stayTotal") == loyal_quote["total"]
+           and booked == "10" and (not same_dates or b["total"] == loyal_quote["total"]),
+           "cấp=%s/%s, báo giá=%s vs %s, thẻ=%s (%s%%), đơn giảm=%s%%"
+           % (level["level"], fresh_level["level"], loyal_quote["total"], fresh_quote["total"],
+              card.get("stayTotal"), card.get("loyaltyPercent"), booked))
+    finally:
+        sql('update listings set "LoyaltyDiscountPercent"=%s where "Id"=%d' % (old or 0, lid))
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
@@ -748,7 +793,7 @@ def main():
                       l_host_cancel_is_fined, l_service_waits_for_the_provider,
                       l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings,
                       l_trip_shared_without_the_keys, l_reviews_say_who_and_count_helpful,
-                      l_listing_questions, l_hotel_rate_plans]
+                      l_listing_questions, l_hotel_rate_plans, l_loyalty_discount]
     for s in scenarios:
         try:
             s()

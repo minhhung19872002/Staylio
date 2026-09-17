@@ -696,6 +696,7 @@ public class HostController(
             SafetyInfo = src.SafetyInfo,
             TimeZoneId = src.TimeZoneId,
             WeeklyDiscountPercent = src.WeeklyDiscountPercent,
+            LoyaltyDiscountPercent = src.LoyaltyDiscountPercent,
             MonthlyDiscountPercent = src.MonthlyDiscountPercent,
             EarlyBirdDays = src.EarlyBirdDays,
             EarlyBirdPercent = src.EarlyBirdPercent,
@@ -1040,6 +1041,7 @@ public class HostController(
             listing.MaxPets = Math.Clamp(p.MaxPets, 0, 10);
             listing.PetFee = Math.Max(0m, p.PetFee);
             listing.PetFeePerNight = p.PetFeePerNight;
+            listing.LoyaltyDiscountPercent = Math.Clamp(p.LoyaltyDiscountPercent, 0, Loyalty.MaxHostPercent);
         }
 
         // docs/01 CĐ-03 — the arrival guide. Left untouched when the client did
@@ -1158,7 +1160,7 @@ public class HostController(
             l.LastMinuteDays, l.LastMinutePercent,
             l.WeekendSurchargeRate,
             l.FreeGuestThreshold, l.ExtraGuestFee,
-            l.PetsAllowed, l.MaxPets, l.PetFee, l.PetFeePerNight),
+            l.PetsAllowed, l.MaxPets, l.PetFee, l.PetFeePerNight, l.LoyaltyDiscountPercent),
         ReadLayout(l),
         l.Images.OrderBy(i => i.SortOrder).Select(i => i.Caption).ToList(),
         new LegalDeclarationDto(

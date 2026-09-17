@@ -207,6 +207,12 @@ public class Listing
     /// <summary>False charges the pet fee once for the stay, true charges it nightly.</summary>
     public bool PetFeePerNight { get; set; }
 
+    /// <summary>
+    /// Staylio Thân thiết — what a guest at level 2 or above gets off the room
+    /// (Loyalty). 0 means the listing does not take part.
+    /// </summary>
+    public int LoyaltyDiscountPercent { get; set; }
+
     public double Rating { get; set; }
     public int ReviewCount { get; set; }
     public bool IsSuperhost { get; set; }
@@ -691,6 +697,9 @@ public class Booking
     public decimal BreakfastFee { get; set; }
 
     public RatePlan Plan => new(RatePlanDiscountPercent, BreakfastPerGuest);
+
+    /// <summary>The Staylio Thân thiết discount this booking was sold with, frozen at the hold.</summary>
+    public int LoyaltyPercent { get; set; }
 
     /// <summary>docs/01 MR-09 — which kind of room, for a hotel booking.</summary>
     public int? RoomTypeId { get; set; }

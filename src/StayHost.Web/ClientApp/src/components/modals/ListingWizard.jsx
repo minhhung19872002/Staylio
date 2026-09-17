@@ -34,7 +34,8 @@ const BLANK_PRICING = {
   weeklyDiscountPercent: 10, monthlyDiscountPercent: 20,
   earlyBirdDays: 0, earlyBirdPercent: 0, lastMinuteDays: 0, lastMinutePercent: 0,
   weekendSurchargeRate: 0.15, freeGuestThreshold: 2, extraGuestFee: 0,
-  petsAllowed: false, maxPets: 2, petFee: 0, petFeePerNight: false
+  petsAllowed: false, maxPets: 2, petFee: 0, petFeePerNight: false,
+  loyaltyDiscountPercent: 0
 };
 
 // docs/01 CĐ-03 — the arrival guide. Blank rather than absent so the editor is
@@ -852,7 +853,11 @@ function StepPrice({ form, num, rule, meta }) {
         <label className="form-field"><span className="cap">{t('Đặt sớm (%)')}</span>
           <input type="number" min={0} max={60} value={form.pricing.earlyBirdPercent}
                  onChange={e => rule('earlyBirdPercent', Number(e.target.value) || 0)} /></label>
+        <label className="form-field"><span className="cap">{t('Staylio Thân thiết (%)')}</span>
+          <input type="number" min={0} max={30} value={form.pricing.loyaltyDiscountPercent ?? 0}
+                 onChange={e => rule('loyaltyDiscountPercent', Number(e.target.value) || 0)} /></label>
       </div>
+      <span className="hint">{t('Giảm cho khách đã hoàn tất từ 3 chuyến trong 2 năm; khách từ 10 chuyến được thêm 5%. Để 0 nếu không tham gia.')}</span>
     </section>
 
     <section className="modal-section">

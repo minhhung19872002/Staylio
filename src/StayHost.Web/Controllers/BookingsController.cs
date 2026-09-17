@@ -16,7 +16,8 @@ public class BookingsController(
     CatalogService catalog, BookingService rules, ReviewService reviews, ThreadMessenger messenger,
     PaymentGateway gateway, RiskWatch risk, WalletService wallet, PaymentCompletion completion,
     CouponService coupons, ExperienceService experiences, ServiceMarketService market,
-    PspRouter psp, PspCheckout pspCheckout, DataSecrets secrets, RefundGateway refunds)
+    PspRouter psp, PspCheckout pspCheckout, DataSecrets secrets, RefundGateway refunds,
+    LoyaltyService loyalty)
     : ControllerBase
 {
     /// <summary>
@@ -157,9 +158,14 @@ public class BookingsController(
             listing.Id, req.RoomTypeId, req.NonRefundableRate, req.Breakfast, ct);
         if (planError is not null) return BadRequest(new { message = planError });
 
+        // Staylio Thân thiết — the level of the account booking, frozen on the booking.
+        var loyaltyPercent = Loyalty.PercentFor(
+            await loyalty.LevelForAsync(user?.Id, ct), listing.LoyaltyDiscountPercent);
+
         var quoteRequest = await catalog.BuildQuoteRequestAsync(
             listing.Id, req.CheckIn, req.CheckOut, party, ct,
-            roomTypeId: req.RoomTypeId, nightlyOverride: offer?.NightlyRate, plan: plan);
+            roomTypeId: req.RoomTypeId, nightlyOverride: offer?.NightlyRate, plan: plan,
+            loyaltyPercent: loyaltyPercent);
 
         // docs/01 ĐP-09 — a promo code first, evaluated against the stay's total
         // before any reduction. It is refused loudly rather than silently ignored:
@@ -289,6 +295,7 @@ public class BookingsController(
             RatePlanDiscountPercent = plan!.NonRefundableDiscountPercent,
             BreakfastPerGuest = plan.BreakfastPerGuestPerNight,
             BreakfastFee = price.BreakfastFee,
+            LoyaltyPercent = loyaltyPercent,
             // docs/07 §6 — kept so "the price I was shown" can be settled from
             // the record. The rate is the platform's own at this instant, looked
             // up below — never one the browser claimed. Evidence, not an input:
@@ -555,7 +562,7 @@ public class BookingsController(
             booking.ListingId, booking.CheckIn, booking.CheckOut, party, ct, booking.Id, booking.RoomTypeId,
             // docs/01 ĐP-17 — a private offer set the rate, so the re-price uses it
             // rather than the listing's normal price it would otherwise fail against.
-            nightlyOverride: booking.NightlyOverride, plan: booking.Plan);
+            nightlyOverride: booking.NightlyOverride, plan: booking.Plan, loyaltyPercent: booking.LoyaltyPercent);
 
         // docs/01 ĐP-09 — the promo code committed at the hold is part of the
         // shown price too, so the re-price carries it exactly as quoted. The
@@ -1102,7 +1109,7 @@ public class BookingsController(
     {
         var fresh = await catalog.BuildQuoteRequestAsync(
             booking.ListingId, checkIn, checkOut, party, ct, booking.Id, booking.RoomTypeId,
-            nightlyOverride: booking.NightlyOverride, plan: booking.Plan);
+            nightlyOverride: booking.NightlyOverride, plan: booking.Plan, loyaltyPercent: booking.LoyaltyPercent);
         if (fresh is null) return null;
 
         if (booking.CouponDiscount > 0)

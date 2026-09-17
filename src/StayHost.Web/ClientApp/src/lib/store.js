@@ -468,8 +468,10 @@ let homeKey = '';
 
 export async function loadHome() {
   // Infants and pets are sent too, and pets are priced (docs/03 §1), so they
-  // belong in the key: without them the rails kept the old prices.
-  const key = `${state.checkIn}|${state.checkOut}|${totalGuests()}|${state.guests.infants || 0}|${state.guests.pets || 0}`;
+  // belong in the key: without them the rails kept the old prices. So does the
+  // viewer — a Staylio Thân thiết level changes the price, so signing in or out
+  // must not keep the rails priced for somebody else.
+  const key = `${state.checkIn}|${state.checkOut}|${totalGuests()}|${state.guests.infants || 0}|${state.guests.pets || 0}|${state.user?.id ?? 0}`;
   if (state.home && key === homeKey) { notify(); return; }
 
   state.homeLoading = true;
@@ -591,6 +593,7 @@ async function runAuth(fn) {
     state.twoFactor = null;
     toast(`Xin chào ${state.user.fullName}!`);
     await Promise.all([loadFavorites(), loadBookings(), loadNotifications()]);
+    repriceForViewer();
     return true;
   } catch (err) {
     state.authError = err.message;
@@ -626,6 +629,17 @@ export async function logout() {
   });
   toast('Đã đăng xuất.');
   notify();
+  repriceForViewer();
+}
+
+/**
+ * A Staylio Thân thiết level changes what a card and a quote cost, so whatever
+ * is on screen was priced for the previous viewer once somebody signs in or out.
+ */
+function repriceForViewer() {
+  if (state.home) loadHome();
+  if (state.results) runSearch({ page: state.results.page || 1 });
+  if (state.detail) refreshQuote();
 }
 
 export async function saveProfile(body) {

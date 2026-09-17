@@ -71,7 +71,7 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (17/09/2026).** 1305 test nghiệp vụ + **24 test tầng web**
+**Toàn bộ xanh (17/09/2026).** 1314 test nghiệp vụ + **24 test tầng web**
 (`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
 đời) · **35/35** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
@@ -182,6 +182,7 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
 | Người đang trên sàn | Trang quản trị đếm **số người đang truy cập** theo cookie phiên `sh_sid` — khách chưa đăng nhập cũng tính, vì phần lớn lưu lượng của một sàn đặt phòng là người chưa có tài khoản. Cửa sổ 5 phút (`Presence.Window`), tách **đã đăng nhập / khách**, kèm đỉnh kể từ lần khởi động. Đếm **trong bộ nhớ** (`PresenceTracker`), không ghi bảng: đây là đường ghi bận nhất của app mà con số thì không ai cần giữ lại. Bot bị loại ba lớp — User-Agent, đường máy gọi máy (`/health`, IPN của cổng thanh toán), và **cookie phải được gửi trả lại** (crawler không giữ cookie nên mỗi request của nó là một danh tính mới) |
 | Phí phạt tự huỷ | Chủ nhà / người dẫn / nhà cung cấp tự huỷ đơn đã xác nhận thì bị phạt **10% / 25% / 50%** (còn >30 ngày / 2–30 ngày / <48 giờ) trên tiền phòng-vé-dịch vụ. **Đặc tả không có số — đây là mức của Airbnb, khách chưa chốt**; đổi ở `HostPenalty:` (`HostPenalties.cs`). Ghi vào `OwedToPlatform`, không bút toán lúc phạt |
 | Thông tin chuyến đi | Giờ đến dự kiến, đặt cho người khác, chuyến công tác, yêu cầu đặc biệt (danh sách cố định trong `StayDetails.cs`, frontend `components/StayDetailsFields.jsx` giữ **cùng bộ khoá**). Chủ nhà thấy ở danh sách đơn + thông báo; khách sửa ở `PUT /api/bookings/{id}/details` khi đơn còn chờ/đã xác nhận |
+| Staylio Thân thiết | Cấp theo chuyến hoàn tất trong 2 năm (`Loyalty.cs`); chủ nhà tự chọn % giảm, **tiền của chủ nhà**, chung trần giảm giá. Giá phụ thuộc người xem nên `StayPricer`/báo giá đọc `LoyaltyService.ViewerLevelAsync`, còn **mọi lần tính lại giá của đơn dùng `Booking.LoyaltyPercent` đã đóng băng** — đừng để đường nào khác đọc người xem |
 | Hiếm có & sắp hết phòng | `Scarcity.cs` là **một ngưỡng cho hai chỗ**: dấu "Hiếm có" trên trang chi tiết (`TĐ-23`) và thông báo "sắp hết phòng" cho chỗ đã lưu (`YT-08`). Dưới 25% đêm trống trong 60 ngày tới, và bỏ qua khi cửa sổ chưa đủ 14 đêm — tin mới khoá sạch lịch là *trống*, không phải *đắt khách*. `ScarcitySweeper` chỉ báo **lúc vượt ngưỡng**, cột `LowAvailabilityNotifiedAt` xoá về null khi lịch mở lại |
 
 ---
@@ -965,7 +966,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ## 6. Kiểm chứng trước khi commit
 
 ```bash
-dotnet test tests/StayHost.Domain.Tests            # 1305 test nghiệp vụ
+dotnet test tests/StayHost.Domain.Tests            # 1314 test nghiệp vụ
 dotnet test tests/StayHost.Web.Tests               # 24 test tầng web (GatewayReply, PublicNetworkOnly)
 python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13

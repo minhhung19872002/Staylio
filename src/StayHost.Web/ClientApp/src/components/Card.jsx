@@ -151,6 +151,13 @@ function SearchBody({ card }) {
     {/* docs/03 §4 — this line used to read "Đã gồm phí · Huỷ miễn phí" on every
         result, non-refundable places included. The fee half is always true; the
         cancellation half is only true for two of the six tiers. */}
+    {card.loyaltyPercent > 0 ? (
+      <div className="card-sub" style={{ color: 'var(--brand)', fontWeight: 600 }}>
+        {t('Giá Thân thiết −{}% đã áp dụng').replace('{}', card.loyaltyPercent)}
+      </div>
+    ) : card.loyaltyOffer > 0 && (
+      <div className="card-sub">{t('Ưu đãi Staylio Thân thiết')}</div>
+    )}
     <div className="card-perks">
       {card.freeCancellation ? t('Đã gồm phí · Huỷ miễn phí') : t('Đã gồm phí và thuế')}
       {card.payAtProperty && <> · {t('Không cần trả trước')}</>}

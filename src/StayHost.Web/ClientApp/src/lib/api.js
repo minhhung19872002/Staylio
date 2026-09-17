@@ -345,6 +345,8 @@ export const api = {
   /* docs/07 §2.5 — find a booking again with no account. */
   lookupBooking: (reference, email) =>
     request('/api/bookings/lookup', { method: 'POST', body: JSON.stringify({ reference, email }) }),
+  /* Staylio Thân thiết — this account's level. */
+  loyalty: () => request('/api/account/loyalty'),
   /* Hotel rate plans a host sells each room with. */
   hostRoomTypes: () => request('/api/host/room-types'),
   saveRatePlans: (roomId, body) =>

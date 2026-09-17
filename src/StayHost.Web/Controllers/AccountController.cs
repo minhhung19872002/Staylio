@@ -23,6 +23,16 @@ public class AccountController(
         return user is null ? NoContent() : Ok(await ToDtoAsync(user, ct));
     }
 
+    /// <summary>Staylio Thân thiết — this account's level and how far the next one is.</summary>
+    [HttpGet("loyalty")]
+    public async Task<ActionResult<LoyaltyDto>> LoyaltyLevel(
+        [FromServices] LoyaltyService loyalty, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+        return Ok(await loyalty.SummaryAsync(user.Id, ct));
+    }
+
     [HttpPost("register")]
     public async Task<ActionResult<CurrentUserDto>> Register([FromBody] RegisterRequest req, CancellationToken ct)
     {

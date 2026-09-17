@@ -1520,6 +1520,21 @@ Chọn gói mà phòng không bán → bị từ chối có tên. Chủ nhà (ho
 chỉnh ở tab Chỗ nghỉ. Khách sạn mẫu được bật sẵn 10% + bữa sáng (seed và
 migration `HotelRatePlans`). L15: **25/25** local; cả bộ chạy lại trên DB trắng.
 
+**Đối chiếu Booking.com — Staylio Thân thiết (kiểu Genius).** Cấp theo số chuyến
+**đã hoàn tất trong 2 năm**: Thành viên (có tài khoản), Thân thiết (từ 3),
+Thân thiết Vàng (từ 10) — `Loyalty.cs`. **Chủ nhà tự chọn tham gia** bằng một %
+trong bước giá của trình đăng tin (tối đa 30%); khách từ cấp 2 được đúng % đó,
+cấp 3 thêm 5 điểm. **Tiền giảm là của chủ nhà**, như mọi khoản giảm khác trong
+`Pricing.cs`: trừ vào tiền phòng, chung trần 60%, phần chủ nhà nhận giảm theo —
+sàn không bù đồng nào, tin không tham gia không giảm gì.
+Vì giá giờ **phụ thuộc người xem**, `LoyaltyService.ViewerLevelAsync` đưa cấp vào
+`StayPricer` (thẻ, trang chi tiết, trang chủ) và vào báo giá; đơn **đóng băng %
+lúc giữ chỗ** (`Booking.LoyaltyPercent`) nên các lần tính lại giá (thanh toán, đổi
+lịch, vòng quét) **không bao giờ đọc "người đang xem"** — một vòng quét không có
+người xem, và chủ nhà duyệt đổi lịch không được làm đơn mất ưu đãi của khách.
+Frontend: khoá cache trang chủ có thêm người xem, và đăng nhập/đăng xuất tính lại
+mọi giá đang hiện. Trang cài đặt có nhóm "Staylio Thân thiết". L16: **26/26**.
+
 ---
 
 ## Kiểm chứng

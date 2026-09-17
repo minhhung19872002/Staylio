@@ -38,6 +38,7 @@ const GROUPS = [
   ['tuy-chinh', 'Tuỳ chỉnh', 'Ngôn ngữ, tiền tệ, múi giờ hiển thị'],
   ['cong-tac', 'Công tác', 'Email công ty cho huy hiệu đi công tác'],
   ['gioi-thieu', 'Giới thiệu bạn bè', 'Link mời và thưởng giới thiệu'],
+  ['than-thiet', 'Staylio Thân thiết', 'Cấp thành viên và ưu đãi từ các chủ nhà tham gia'],
 ];
 
 export function Settings() {
@@ -153,6 +154,8 @@ export function Settings() {
 
         {group === 'cong-tac' && <WorkEmailSection />}
 
+        {group === 'than-thiet' && <LoyaltyPanel />}
+
         {group === 'gioi-thieu' && <>
           <p className="section-sub">
             {t('Mời bạn bè và theo dõi thưởng ở')}{' '}
@@ -164,6 +167,31 @@ export function Settings() {
           </p>
         </>}
       </div>
+    </div>
+  );
+}
+
+/** Staylio Thân thiết — the level, the progress, and what each level brings. */
+function LoyaltyPanel() {
+  const [data, setData] = useState(null);
+  useEffect(() => { api.loyalty().then(setData).catch(err => toast(err.message)); }, []);
+  if (!data) return null;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="kv-grid">
+        <div className="kv"><span className="kv-label">{t('Cấp hiện tại')}</span><b>{t(data.label)}</b></div>
+        <div className="kv"><span className="kv-label">{t('Chuyến đã hoàn tất (2 năm)')}</span><b>{data.completedStays}</b></div>
+      </div>
+      {data.staysToNext != null && (
+        <p className="section-sub" style={{ marginTop: 14 }}>
+          {t('Còn {} chuyến nữa để lên cấp').replace('{}', data.staysToNext)} {t(data.nextLabel)}.
+        </p>
+      )}
+      <ul className="guide-list" style={{ marginTop: 14 }}>
+        <li>{t('Thành viên: có tài khoản Staylio.')}</li>
+        <li>{t('Thân thiết: từ 3 chuyến — nhận mức giảm của các chỗ nghỉ tham gia.')}</li>
+        <li>{t('Thân thiết Vàng: từ 10 chuyến — thêm 5% trên mức giảm đó.')}</li>
+      </ul>
     </div>
   );
 }

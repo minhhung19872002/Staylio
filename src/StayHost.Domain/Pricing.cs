@@ -51,6 +51,9 @@ public static class Pricing
         /// <summary>A hotel room's non-refundable rate and breakfast, already resolved.</summary>
         public RatePlan Plan { get; init; } = RatePlan.None;
 
+        /// <summary>The "Staylio Thân thiết" discount this guest gets here, already resolved (Loyalty.PercentFor).</summary>
+        public int LoyaltyPercent { get; init; }
+
         public PricingSettings Settings { get; init; } = PricingSettings.Current;
     }
 
@@ -162,6 +165,14 @@ public static class Pricing
             parts.Add(new("non-refundable",
                 $"Giá không hoàn tiền ({req.Plan.NonRefundableDiscountPercent}%)",
                 req.Plan.NonRefundableDiscountPercent));
+        }
+
+        // The host's discount for returning guests — theirs to give, so it sits
+        // with the other room discounts under the same cap.
+        if (req.LoyaltyPercent > 0)
+        {
+            parts.Add(new("loyalty",
+                $"Ưu đãi khách thân thiết ({req.LoyaltyPercent}%)", req.LoyaltyPercent));
         }
 
         // Step 4 — a brand-new listing's first few stays.

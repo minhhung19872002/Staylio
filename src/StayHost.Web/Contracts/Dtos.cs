@@ -358,7 +358,9 @@ public record PricingRulesDto(
     bool PetsAllowed,
     int MaxPets,
     decimal PetFee,
-    bool PetFeePerNight);
+    bool PetFeePerNight,
+    /// <summary>Staylio Thân thiết — off the room for guests at level 2 and above.</summary>
+    int LoyaltyDiscountPercent = 0);
 
 public record SaveListingRequest(
     string Title,
@@ -1052,6 +1054,10 @@ public record ListingCardDto(
     public string? FromCentreLabel { get; init; }
     /// <summary>The guest may pay the host on arrival (docs/07 §2.5) — "không cần trả trước".</summary>
     public bool PayAtProperty { get; init; }
+    /// <summary>What this listing gives Staylio Thân thiết guests (level 2+); 0 if it does not take part.</summary>
+    public int LoyaltyOffer { get; init; }
+    /// <summary>What the current viewer gets here, already in the priced total.</summary>
+    public int LoyaltyPercent { get; init; }
 }
 
 public record HomeSectionDto(
