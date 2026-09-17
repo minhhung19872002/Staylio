@@ -198,13 +198,17 @@ public class ResolutionController(
     /// </summary>
     [HttpPost("{id:int}/decide")]
     public async Task<ActionResult<ResolutionCaseDto>> Decide(
-        int id, [FromBody] DecideResolutionRequest req, CancellationToken ct)
+        int id, [FromBody] DecideResolutionRequest req, [FromServices] AdminGate gate, CancellationToken ct)
     {
         var admin = await RequireScopeAsync(AdminScope.Arbitration, ct);
         if (admin is null) return StatusCode(403, new { message = "Bạn không có quyền phân xử." });
 
         var kase = await LoadAsync(id, ct);
         if (kase is null) return NotFound();
+
+        if (await gate.PartyConflictAsync(
+                admin, kase.Booking?.GuestUserId, kase.Booking?.Listing?.Host?.UserId, ct) is { } refusal)
+            return StatusCode(403, new { message = refusal });
         if (!Resolutions.CanTransition(kase.Status, ResolutionStatus.Resolved))
             return BadRequest(new { message = $"Hồ sơ đang ở trạng thái \"{Resolutions.Label(kase.Status)}\"." });
 

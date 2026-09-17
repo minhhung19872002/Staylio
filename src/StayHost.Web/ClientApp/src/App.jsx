@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { useStore } from './lib/useStore.js';
 import {
   loadMeta, loadMe, loadFeatures, loadFavorites, loadNotifications, set, state as store
@@ -187,6 +187,9 @@ export function App() {
             <Route path="/trips/:id" element={<Trip />} />
             <Route path="/host" element={<Host />} />
             <Route path="/hosting" element={<Hosting />} />
+            {/* Links already sent in payout and review emails. */}
+            <Route path="/hosting/earnings" element={<Navigate to="/hosting?tab=earnings" replace />} />
+            <Route path="/hosting/reviews" element={<Navigate to="/hosting?tab=reviews" replace />} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/messages/:id" element={<Messages />} />
             <Route path="/resolutions" element={<Resolutions />} />

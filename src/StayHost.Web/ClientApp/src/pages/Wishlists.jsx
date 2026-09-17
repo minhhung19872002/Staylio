@@ -143,7 +143,7 @@ function CompareTable({ cards, onClose, navigate }) {
     ['Giá / đêm', c => money(c.pricePerNight)],
     ['Đánh giá', c => c.reviewCount ? `★ ${c.rating.toFixed(2)} (${c.reviewCount})` : t('Chưa có')],
     ['Thành phố', c => c.city],
-    ['Loại', c => c.roomTypeLabel],
+    ['Loại', c => t(c.roomTypeLabel)],
     ['Khách tối đa', c => `${c.maxGuests}`],
     ['Phòng ngủ', c => `${c.bedrooms}`],
     ['Giường', c => `${c.beds}`],

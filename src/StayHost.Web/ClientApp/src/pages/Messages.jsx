@@ -207,7 +207,7 @@ function Conversation({ thread, onOpenListing }) {
         : <div className="inbox-empty"><p>{t('Hãy gửi lời chào đầu tiên.')}</p></div>}
     </div>
 
-    <QuickReplies replies={thread.quickReplies} onPick={body => {
+    <QuickReplies replies={thread.summary?.viewerIsHost ? thread.quickReplies : null} onPick={body => {
       if (inputRef.current) {
         inputRef.current.value = body;
         inputRef.current.focus();
@@ -368,7 +368,8 @@ function QuickReplies({ replies, onPick }) {
     } catch (err) { toast(err.message); }
   };
 
-  // Guests never see this row: the server sends an empty list to them.
+  // Guests never see this row. The server sends them an empty list, and an
+  // empty array is truthy, so the caller passes null unless the viewer hosts.
   if (!replies) return null;
 
   return (

@@ -270,6 +270,9 @@ public class AccountController(
 
         if (!result.Ok) return BadRequest(new { message = result.Error });
 
+        if (result.TwoFactorChallenge is { } challenge)
+            return Accepted(await ChallengeDtoAsync(result.User!, challenge, ct));
+
         return Ok(await ToDtoAsync(result.User!, ct));
     }
 
@@ -873,7 +876,30 @@ public class AccountController(
         if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
 
         if (!string.IsNullOrWhiteSpace(req.FullName)) user.FullName = req.FullName.Trim();
-        user.Phone = req.Phone?.Trim();
+
+        // A phone number here is also a way to sign in and, for some accounts,
+        // where the second factor goes. Changing it used to keep "đã xác minh"
+        // on the new number, so whoever held a session could point the codes at
+        // their own phone. It also was stored as typed, which the sign-in lookup
+        // never matched, and a number already on another account threw a 500.
+        var phone = string.IsNullOrWhiteSpace(req.Phone) ? null : Identity.NormalisePhone(req.Phone);
+        if (!string.IsNullOrWhiteSpace(req.Phone) && phone is null)
+            return BadRequest(new { message = "Số điện thoại không hợp lệ." });
+
+        if (phone != user.Phone)
+        {
+            if (user.TwoFactorEnabled && user.TwoFactorKind == IdentifierKind.Phone)
+                return BadRequest(new
+                {
+                    message = "Mã bảo mật 2 lớp đang gửi về số này. Chuyển bảo mật 2 lớp sang email trước khi đổi số."
+                });
+
+            if (phone is not null && await db.Users.AnyAsync(u => u.Id != user.Id && u.Phone == phone, ct))
+                return BadRequest(new { message = "Số điện thoại này đã thuộc tài khoản khác." });
+
+            user.Phone = phone;
+            user.PhoneConfirmed = false;
+        }
 
         // docs/01 TK-04 — everything below is free text somebody typed, so it is
         // trimmed and capped here rather than trusted at the length the browser
@@ -1101,6 +1127,10 @@ public class AccountController(
     {
         var result = await auth.CompletePasswordResetAsync(req.Token, req.NewPassword, ct);
         if (!result.Ok) return BadRequest(new { message = result.Error });
+
+        if (result.TwoFactorChallenge is { } challenge)
+            return Accepted(await ChallengeDtoAsync(result.User!, challenge, ct));
+
         return Ok(await ToDtoAsync(result.User!, ct));
     }
 
@@ -1114,7 +1144,30 @@ public class AccountController(
         if (user.EmailConfirmed) return Ok(new { message = "Email đã được xác minh." });
 
         var token = await auth.BeginEmailVerificationAsync(user, ct);
-        return Ok(new { message = "Đã gửi liên kết xác minh.", verifyLink = $"/verify-email?token={token}" });
+        var link = $"/verify-email?token={token}";
+
+        // The link proves the mailbox, so it goes to the mailbox. It used to come
+        // back in this response and nowhere else — no mail was queued at all — so
+        // anyone signed in could "confirm" an address they did not own, and with
+        // it claim a co-host invitation sent to that address. Development keeps
+        // it in the response so the flow can be walked without a mail server.
+        db.EmailMessages.Add(new EmailMessage
+        {
+            ToEmail = user.Email,
+            ToName = user.FullName,
+            Subject = "Xác minh email Staylio",
+            Body = Emails.Compose(user.Language, user.FullName,
+                "Xác minh địa chỉ email của bạn", "Mở liên kết dưới đây để xác minh. Liên kết có hiệu lực 3 ngày.",
+                link),
+            Language = user.Language
+        });
+        await db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            message = "Đã gửi liên kết xác minh tới email của bạn.",
+            verifyLink = env.IsDevelopment() ? link : null
+        });
     }
 
     [HttpPost("verify-email")]

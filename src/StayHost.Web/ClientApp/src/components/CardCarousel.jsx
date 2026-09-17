@@ -33,7 +33,7 @@ export function CardCarousel({ images, alt = '' }) {
         <div className="carousel-dots">
           {pics.map((_, i) => (
             <button key={i} className={`bullet ${i === idx ? 'is-on' : ''}`}
-                    onClick={e => own(e, () => slides.goTo(i))} aria-label={`Xem ảnh ${i + 1}`} />
+                    onClick={e => own(e, () => slides.goTo(i))} aria-label={`${t('Xem ảnh')} ${i + 1}`} />
           ))}
         </div>
       </>}

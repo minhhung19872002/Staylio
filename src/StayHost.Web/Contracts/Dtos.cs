@@ -1643,7 +1643,18 @@ public record BookingDto(
     /// <summary>docs/07 §2.5 — the guest settles with the host on arrival.</summary>
     bool PaidAtProperty = false,
     /// <summary>docs/07 §2.5 — set once the host confirmed the cash is in hand.</summary>
-    DateTime? CashCollectedAt = null);
+    DateTime? CashCollectedAt = null)
+{
+    /// <summary>
+    /// The party behind <see cref="Guests"/>. A change request that only knew
+    /// the total sent the pets and children as zero, and accepting it dropped
+    /// the pet fee from a stay that still had the pet.
+    /// </summary>
+    public int Adults { get; init; }
+    public int Children { get; init; }
+    public int Infants { get; init; }
+    public int Pets { get; init; }
+}
 
 public record BookingEventDto(
     string? FromStatus, string FromLabel, string ToStatus, string ToLabel,
@@ -1846,9 +1857,12 @@ public record ShareInviteDto(
     string SplitStatusLabel,
     int PaidCount,
     int PeopleCount,
-    DateTime ExpiresAt);
+    DateTime ExpiresAt,
+    /// <summary>docs/07 §13 — where to send the payer when a licensed gateway takes the money.</summary>
+    string? GatewayRedirectUrl = null,
+    string? GatewayOrderRef = null);
 
-public record PayShareRequest(string? Name, string? CardLast4);
+public record PayShareRequest(string? Name, string? CardLast4, string? PaymentMethod = null);
 
 /* ---- docs/01 MR-01 → MR-04: experiences ---------------------------------- */
 
@@ -1967,7 +1981,14 @@ public record ExperienceBookingDto(
     // have already written their review, so a ticket never offers a form the
     // server is only going to refuse.
     bool? Attended = null,
-    bool HasReview = false);
+    bool HasReview = false)
+{
+    /// <summary>docs/07 §13 — where to send the guest when a licensed gateway takes the money.</summary>
+    public string? GatewayRedirectUrl { get; init; }
+
+    /// <summary>What the gateway will know that payment by.</summary>
+    public string? GatewayOrderRef { get; init; }
+}
 
 public record BookExperienceRequest(
     int Seats,
@@ -2181,7 +2202,14 @@ public record ServiceBookingDto(
     string? CancelReason,
     DateTime CreatedAt,
     /// <summary>docs/09 §5 — set once this job has been scored, so nobody is asked twice.</summary>
-    bool HasReview = false);
+    bool HasReview = false)
+{
+    /// <summary>docs/07 §13 — where to send the guest when a licensed gateway takes the money.</summary>
+    public string? GatewayRedirectUrl { get; init; }
+
+    /// <summary>What the gateway will know that payment by.</summary>
+    public string? GatewayOrderRef { get; init; }
+}
 
 /// <summary>
 /// docs/07 §2.3 — everything a page needs to draw a VietQR and tell the guest

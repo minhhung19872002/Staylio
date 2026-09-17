@@ -180,6 +180,10 @@ def book_a_slot(op, offering_id, note, quantity=1):
                 "payment": {"cardNumber": "4242424242424242", "expiry": "12/30",
                             "cvc": "123", "holder": "KIEM TRA"}})
             if st in (200, 201):
+                # docs/07 §13 — the job waits on VNPay; the signed IPN pays it.
+                st, res = gateway.finish(call, op, st, res, "ServiceBookingId")
+                if res.get("gatewaySettled") is False:
+                    return None, res.get("gatewayNote")
                 return res, None
             last = f"{st} {res}"
     return None, last

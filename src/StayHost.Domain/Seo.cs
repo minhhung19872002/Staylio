@@ -251,6 +251,10 @@ public static class SpaRoutes
         "/thanh-toan/ket-qua", "/account/sanctions", "/appeal", "/neighbors",
         "/friends", "/trip-plans", "/admin",
 
+        // Payout and review emails linked here before the host page read its tab
+        // from the query; those emails are still in inboxes.
+        "/hosting/earnings", "/hosting/reviews",
+
         // docs/02 F1 — the settings hub and its nine groups, each a literal
         // entry on purpose. The tempting shortcut — "cai-dat" in Resolve's
         // two-segment fallback arm — would answer 200 for /cai-dat/anything,

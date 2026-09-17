@@ -11,9 +11,26 @@ namespace StayHost.Web.Controllers;
 /// <summary>Guest ↔ host conversations, one thread per (listing, guest) pair.</summary>
 [ApiController]
 [Route("api/messages")]
-public class MessagesController(StayHostDbContext db, AuthService auth, NotificationService notifications)
+public class MessagesController(
+    StayHostDbContext db, AuthService auth, NotificationService notifications, HostAccess access)
     : ControllerBase
 {
+    /// <summary>
+    /// docs/01 QL-19 — whose side of the thread this user is on: their own id
+    /// when they are the guest or the host, the host's id when they are a
+    /// co-host lent the Messages scope for that listing, null otherwise. A
+    /// co-host speaks for the host, so what they send is the host's message.
+    /// </summary>
+    private async Task<int?> ActingAsAsync(User user, MessageThread thread, CancellationToken ct)
+    {
+        if (thread.GuestUserId == user.Id || thread.HostUserId == user.Id) return user.Id;
+
+        var listing = thread.Listing ?? await db.Listings.FirstOrDefaultAsync(l => l.Id == thread.ListingId, ct);
+        return listing is not null && await access.MayAsync(user, listing, CoHostScope.Messages, ct)
+            ? thread.HostUserId
+            : null;
+    }
+
     [HttpGet("threads")]
     public async Task<ActionResult<IReadOnlyList<ThreadSummaryDto>>> Threads(
         [FromQuery] string? filter, CancellationToken ct)
@@ -24,8 +41,11 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
         if (!InboxFilters.TryParse(filter, out var view))
             return BadRequest(new { message = "Bộ lọc hộp thư không hợp lệ." });
 
+        // Listings this user answers for as a co-host, besides their own threads.
+        var helped = await access.ListingIdsAsync(user, CoHostScope.Messages, ct);
+
         var threads = await db.MessageThreads
-            .Where(t => t.GuestUserId == user.Id || t.HostUserId == user.Id)
+            .Where(t => t.GuestUserId == user.Id || t.HostUserId == user.Id || helped.Contains(t.ListingId))
             .Include(t => t.Listing!).ThenInclude(l => l.Images)
             .Include(t => t.GuestUser)
             .Include(t => t.HostUser)
@@ -39,7 +59,9 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
 
         // docs/01 TN-05 — filter by unread, awaiting-reply, or archived.
         var rows = threads
-            .Select(t => Summarize(t, user.Id, unlocked.Contains(t.Id)))
+            .Select(t => Summarize(
+                t, t.GuestUserId == user.Id || t.HostUserId == user.Id ? user.Id : t.HostUserId,
+                unlocked.Contains(t.Id)))
             .Where(s => InboxFilters.Matches(view, s.UnreadCount, s.NeedsReply, s.IsArchived))
             .ToList();
 
@@ -58,9 +80,10 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
 
         // Each side archives its own view; a guest tidying up does not hide the
         // conversation from the host.
-        if (thread.GuestUserId == user.Id) thread.ArchivedByGuest = on;
-        else if (thread.HostUserId == user.Id) thread.ArchivedByHost = on;
-        else return this.Denied();
+        var acting = await ActingAsAsync(user, thread, ct);
+        if (acting is null) return this.Denied();
+        if (acting == thread.GuestUserId) thread.ArchivedByGuest = on;
+        else thread.ArchivedByHost = on;
 
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -74,17 +97,17 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
 
         var thread = await LoadThreadAsync(id, ct);
         if (thread is null) return NotFound();
-        if (thread.GuestUserId != user.Id && thread.HostUserId != user.Id) return this.Denied();
+        if (await ActingAsAsync(user, thread, ct) is not { } acting) return this.Denied();
 
         // Opening a thread marks the other side's messages as read.
-        var unread = thread.Messages.Where(m => m.SenderUserId != user.Id && m.ReadAt is null).ToList();
+        var unread = thread.Messages.Where(m => m.SenderUserId != acting && m.ReadAt is null).ToList();
         if (unread.Count > 0)
         {
             foreach (var m in unread) m.ReadAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
 
-        return Ok(await DetailAsync(thread, user, ct));
+        return Ok(await DetailAsync(thread, acting, ct));
     }
 
     [HttpPost]
@@ -99,12 +122,14 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
         if (body.Length > 4000) return BadRequest(new { message = "Tin nhắn quá dài." });
 
         MessageThread? thread;
+        var acting = user.Id;
 
         if (req.ThreadId is int threadId)
         {
             thread = await LoadThreadAsync(threadId, ct);
             if (thread is null) return NotFound();
-            if (thread.GuestUserId != user.Id && thread.HostUserId != user.Id) return this.Denied();
+            if (await ActingAsAsync(user, thread, ct) is not { } side) return this.Denied();
+            acting = side;
         }
         else
         {
@@ -145,10 +170,10 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
         // docs/01 AT-10 — a block stops the conversation in both directions,
         // whichever side raised it. Existing threads and new ones are both covered
         // because the check sits after the thread is resolved.
-        var counterpart = thread.GuestUserId == user.Id ? thread.HostUserId : thread.GuestUserId;
+        var counterpart = thread.GuestUserId == acting ? thread.HostUserId : thread.GuestUserId;
         var blocked = await db.UserBlocks.AnyAsync(
-            bk => (bk.BlockerUserId == user.Id && bk.BlockedUserId == counterpart)
-                  || (bk.BlockerUserId == counterpart && bk.BlockedUserId == user.Id), ct);
+            bk => (bk.BlockerUserId == acting && bk.BlockedUserId == counterpart)
+                  || (bk.BlockerUserId == counterpart && bk.BlockedUserId == acting), ct);
         if (blocked) return StatusCode(403, new { message = Blocks.BlockedMessage() });
 
         // docs/01 TN-02 — photos ride along with the text, capped so one message
@@ -158,11 +183,11 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
 
         thread.Messages.Add(new Message
         {
-            ThreadId = thread.Id, SenderUserId = user.Id, Body = body, Attachments = attachments
+            ThreadId = thread.Id, SenderUserId = acting, Body = body, Attachments = attachments
         });
         thread.LastMessageAt = DateTime.UtcNow;
 
-        var recipientId = thread.GuestUserId == user.Id ? thread.HostUserId : thread.GuestUserId;
+        var recipientId = thread.GuestUserId == acting ? thread.HostUserId : thread.GuestUserId;
         var recipient = await db.Users.FirstOrDefaultAsync(u => u.Id == recipientId, ct);
         notifications.Queue(recipientId, NotificationKind.MessageReceived,
             $"Tin nhắn mới từ {user.FullName}",
@@ -173,17 +198,17 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
         await db.SaveChangesAsync(ct);
 
         var fresh = await LoadThreadAsync(thread.Id, ct);
-        return Ok(await DetailAsync(fresh!, user, ct));
+        return Ok(await DetailAsync(fresh!, acting, ct));
     }
 
     /// <summary>
     /// One place builds the thread payload: the masked messages, the order card
     /// of docs/01 TN-03, and the host's saved phrases of TN-08.
     /// </summary>
-    private async Task<ThreadDetailDto> DetailAsync(MessageThread thread, User viewer, CancellationToken ct)
+    private async Task<ThreadDetailDto> DetailAsync(MessageThread thread, int viewerId, CancellationToken ct)
     {
         var open = await ContactsUnlockedAsync(thread, ct);
-        var viewerIsHost = thread.HostUserId == viewer.Id;
+        var viewerIsHost = thread.HostUserId == viewerId;
 
         // TN-03 — the most relevant order for these two on this listing: the live
         // one if there is one, otherwise the most recent.
@@ -195,7 +220,7 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
 
         var quickReplies = viewerIsHost
             ? await db.QuickReplies
-                .Where(q => q.HostUserId == viewer.Id)
+                .Where(q => q.HostUserId == viewerId)
                 .OrderBy(q => q.SortOrder).ThenBy(q => q.Id)
                 .Select(q => new QuickReplyDto(q.Id, q.Title, q.Body, q.SortOrder))
                 .ToListAsync(ct)
@@ -208,8 +233,8 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
             .ToListAsync(ct);
 
         return new ThreadDetailDto(
-            Summarize(thread, viewer.Id, open),
-            thread.Messages.OrderBy(m => m.SentAt).Select(m => ToDto(m, viewer.Id, open)).ToList(),
+            Summarize(thread, viewerId, open),
+            thread.Messages.OrderBy(m => m.SentAt).Select(m => ToDto(m, viewerId, open)).ToList(),
             open,
             booking is null ? null : new ThreadBookingDto(
                 booking.Id, booking.Reference, booking.CheckIn, booking.CheckOut,
@@ -280,7 +305,7 @@ public class MessagesController(StayHostDbContext db, AuthService auth, Notifica
         thread.LastMessageAt = now;
 
         await db.SaveChangesAsync(ct);
-        return Ok(await DetailAsync((await LoadThreadAsync(id, ct))!, user, ct));
+        return Ok(await DetailAsync((await LoadThreadAsync(id, ct))!, user.Id, ct));
     }
 
     /// <summary>docs/01 ĐP-17 — the host takes a still-pending offer back.</summary>

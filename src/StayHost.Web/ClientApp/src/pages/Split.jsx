@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { toast } from '../lib/store.js';
+import { useStore } from '../lib/useStore.js';
+import { PaymentMethods } from '../components/PaymentMethods.jsx';
 import { money, longDate, dateTime } from '../lib/format.js';
 import { t } from '../lib/i18n.js';
 
@@ -13,6 +15,11 @@ import { t } from '../lib/i18n.js';
 export function Split() {
   const { token } = useParams();
   const navigate = useNavigate();
+  const state = useStore();
+  // docs/07 §13 — the gateway sends the payer back here; the share's own state,
+  // read from the server, is what says whether it worked.
+  const [params] = useSearchParams();
+  const back = params.get('ket-qua');
   const [invite, setInvite] = useState(null);
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,13 +50,16 @@ export function Split() {
   }
 
   const pay = async () => {
-    const card = document.getElementById('split-card')?.value?.replace(/\D/g, '') ?? '';
+    const card = document.getElementById('split-card-number')?.value?.replace(/\D/g, '') ?? '';
     setBusy(true);
     try {
-      setInvite(await api.paySplitShare(token, {
+      const res = await api.paySplitShare(token, {
         name: name.trim() || null,
+        paymentMethod: state.payMethod ?? 'card',
         cardLast4: card.length >= 4 ? card.slice(-4) : null
-      }));
+      });
+      if (res.gatewayRedirectUrl) { window.location.assign(res.gatewayRedirectUrl); return; }
+      setInvite(res);
       toast(t('Cảm ơn bạn, phần của bạn đã được thanh toán.'));
     } catch (err) { toast(err.message); } finally { setBusy(false); }
   };
@@ -90,12 +100,18 @@ export function Split() {
           <p style={{ fontSize: 13.5, color: 'var(--ink-muted)', margin: '0 0 14px' }}>
             {t('Đơn chỉ được xác nhận khi tất cả mọi người đã trả. Hạn chót')} {dateTime(invite.expiresAt)}.
           </p>
+          {back && back !== 'ok' && (
+            <div className="book-alert" style={{ marginBottom: 14 }}>
+              <b>{back === 'cancelled' ? t('Bạn đã huỷ ở trang thanh toán') : t('Chưa thanh toán được')}</b>
+              <span>{t('Nếu tài khoản của bạn đã bị trừ tiền, đừng trả lại lần nữa — hãy liên hệ hỗ trợ kèm mã bên dưới.')}</span>
+            </div>
+          )}
           <div className="field-grid">
             <label className="form-field"><span className="cap">{t('Tên của bạn')}</span>
               <input value={name} placeholder={t('Nguyễn Văn A')} onChange={e => setName(e.target.value)} /></label>
-            <label className="form-field"><span className="cap">{t('Số thẻ')}</span>
-              <input id="split-card" inputMode="numeric" defaultValue="4242 4242 4242 4242" /></label>
           </div>
+          {/* docs/07 §14.2 — no card field of our own while a gateway takes cards. */}
+          <PaymentMethods idPrefix="split-card" />
           <button className="btn btn-primary" style={{ marginTop: 8 }} disabled={busy} onClick={pay}>
             {busy ? t('Đang xử lý…') : `${t('Trả')} ${money(invite.amount)}`}
           </button>

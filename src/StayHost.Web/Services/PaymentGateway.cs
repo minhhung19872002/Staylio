@@ -9,7 +9,8 @@ namespace StayHost.Web.Services;
 /// so a charge succeeds unless the card was set up to be refused — which is the
 /// only way to exercise the failed-second-charge path of docs/03 §1 end to end.
 /// </summary>
-public class PaymentGateway(ILogger<PaymentGateway> log, StayHostDbContext db)
+public class PaymentGateway(
+    ILogger<PaymentGateway> log, StayHostDbContext db, Gateways.PspRouter router)
 {
     /// <summary>A card ending in these four digits always declines.</summary>
     public const string DecliningCard = "0000";
@@ -51,6 +52,15 @@ public class PaymentGateway(ILogger<PaymentGateway> log, StayHostDbContext db)
     public Result Charge(decimal amount, string method, string? cardLast4, string? key = null)
     {
         if (amount <= 0) return new Result(true);
+
+        // Checked before the key below: a key the stand-in once wrote for a
+        // method a gateway now owns must not turn into a free "already paid".
+        if (!router.StandInMay(method))
+        {
+            log.LogWarning("Bản giả lập từ chối thu {Amount} qua {Method}: không có quyền thu phương thức này.",
+                amount, method);
+            return new Result(false, DeclineReason.MethodUnavailable);
+        }
 
         // Already taken under this key — which is what happens after a 3-D Secure
         // authorisation: the bank moved the money on its own page, and this call
@@ -126,6 +136,11 @@ public class PaymentGateway(ILogger<PaymentGateway> log, StayHostDbContext db)
     {
         if (amount <= 0) return true;
 
+        // A refund with no gateway visit behind it is money the stand-in took.
+        // Where the stand-in never runs it cannot claim to have given anything
+        // back; the caller turns false into balance.
+        if (!router.StandInEnabled) return false;
+
         if (PaymentMethods.IsCard(method) && cardLast4 == RefundRejectingCard)
         {
             log.LogInformation("Refund of {Amount} handed back: card closed (test card).", amount);
@@ -134,6 +149,18 @@ public class PaymentGateway(ILogger<PaymentGateway> log, StayHostDbContext db)
 
         log.LogInformation("Refunded {Amount} to {Method}.", amount, method);
         return true;
+    }
+
+    /// <summary>
+    /// docs/07 §12.2 — the small test transfer to a host's new payout account.
+    /// Money going out rather than in, so the checkout rules above do not apply;
+    /// the account ending 0000 stands for one the bank refuses.
+    /// </summary>
+    public Result TestTransfer(decimal amount, string? accountLast4)
+    {
+        if (accountLast4 == DecliningCard) return new Result(false, DeclineReason.BankRefused);
+        log.LogInformation("Test transfer of {Amount} sent.", amount);
+        return new Result(true);
     }
 
     /// <summary>docs/07 §5 — does this card send the guest to their bank first?</summary>

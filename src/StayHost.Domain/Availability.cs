@@ -115,8 +115,13 @@ public static class Availability
             }
         }
 
-        // 6 — night count, including any per-day minimum the host set.
-        var minNights = Math.Max(l.MinNights, req.MinNightsByDay.GetValueOrDefault(req.CheckIn, 0));
+        // 6 — night count. docs/03 §2 step 6: a minimum the host set for that
+        // day "ưu tiên giá trị riêng đó" — it replaces the listing's, lower as
+        // well as higher. Taking the larger of the two meant a host could never
+        // open a single night on a place that normally needs three.
+        var minNights = req.MinNightsByDay.TryGetValue(req.CheckIn, out var own) && own > 0
+            ? own
+            : l.MinNights;
         if (nights < minNights)
             return Result.Fail(Reason.NightCount, $"Chỗ nghỉ này yêu cầu tối thiểu {minNights} đêm.");
 
@@ -156,7 +161,9 @@ public static class Availability
                 var gapBefore = req.CheckIn.DayNumber - o.To.DayNumber;
                 var gapAfter = o.From.DayNumber - req.CheckOut.DayNumber;
 
-                if ((gapBefore > 0 && gapBefore < l.TurnoverDays) || (gapAfter > 0 && gapAfter < l.TurnoverDays))
+                // Zero counts: a guest arriving the day another leaves is the
+                // tightest turnover there is, and ">" let exactly that through.
+                if ((gapBefore >= 0 && gapBefore < l.TurnoverDays) || (gapAfter >= 0 && gapAfter < l.TurnoverDays))
                 {
                     return Result.Fail(Reason.TurnoverTime,
                         $"Chủ nhà cần {l.TurnoverDays} ngày dọn dẹp giữa hai lượt khách.");

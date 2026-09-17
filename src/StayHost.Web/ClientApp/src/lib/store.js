@@ -444,7 +444,9 @@ export async function runSearch({ page = 1 } = {}) {
 let homeKey = '';
 
 export async function loadHome() {
-  const key = `${state.checkIn}|${state.checkOut}|${totalGuests()}`;
+  // Infants and pets are sent too, and pets are priced (docs/03 §1), so they
+  // belong in the key: without them the rails kept the old prices.
+  const key = `${state.checkIn}|${state.checkOut}|${totalGuests()}|${state.guests.infants || 0}|${state.guests.pets || 0}`;
   if (state.home && key === homeKey) { notify(); return; }
 
   state.homeLoading = true;
@@ -685,7 +687,12 @@ export async function toggleFavorite(id) {
       state.detail = { ...state.detail, card: flip(state.detail.card) };
     }
     if (state.activeWishlist) {
-      state.activeWishlist = { ...state.activeWishlist, items: state.activeWishlist.items.map(flip) };
+      // A list holds { card, note } entries, not cards: flipping the entry
+      // itself matched nothing and the heart stayed red.
+      state.activeWishlist = {
+        ...state.activeWishlist,
+        items: state.activeWishlist.items.map(e => e?.card ? { ...e, card: flip(e.card) } : flip(e))
+      };
     }
     notify();
   };
@@ -884,6 +891,11 @@ export async function openSplit(emails) {
 export async function payBalance(bookingId) {
   try {
     const updated = await api.payBalance(bookingId);
+    // docs/07 §13 — the deposit went through a gateway, so the rest does too.
+    if (updated.gatewayRedirectUrl) {
+      window.location.assign(updated.gatewayRedirectUrl);
+      return updated;
+    }
     state.trip = updated;
     toast('Đã thanh toán phần còn lại.');
     await loadBookings();

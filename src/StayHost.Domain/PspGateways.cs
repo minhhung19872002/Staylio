@@ -693,6 +693,28 @@ public class PaymentSession
     public int? GiftCardId { get; set; }
     public GiftCard? GiftCard { get; set; }
 
+    /// <summary>docs/09 — a ticket to an experience, when that is the subject.</summary>
+    public int? ExperienceBookingId { get; set; }
+    public ExperienceBooking? ExperienceBooking { get; set; }
+
+    /// <summary>docs/09 — a booked service, when that is the subject.</summary>
+    public int? ServiceBookingId { get; set; }
+    public ServiceBooking? ServiceBooking { get; set; }
+
+    /// <summary>
+    /// docs/01 ĐP-07 — one person's share of a split bill. <see cref="BookingId"/>
+    /// is set as well, because a refund of the stay has to find these visits too.
+    /// </summary>
+    public int? BillShareId { get; set; }
+    public BillShare? BillShare { get; set; }
+
+    /// <summary>
+    /// docs/01 ĐP-06 — the second half of a part-paid stay. Set together with
+    /// <see cref="BookingId"/>; the booking is already confirmed, so settling this
+    /// visit collects the balance instead of confirming anything.
+    /// </summary>
+    public bool IsBalance { get; set; }
+
     /// <summary>vnpay / momo / zalopay.</summary>
     public string Provider { get; set; } = "";
 

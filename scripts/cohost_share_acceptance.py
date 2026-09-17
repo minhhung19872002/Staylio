@@ -108,6 +108,14 @@ def register(email, name):
                     "dateOfBirth": "1990-01-01"})
     if st not in (200, 201):
         raise SystemExit("register %s: %s %s" % (email, st, res))
+    # An invitation is claimed by whoever proved the address, so the new account
+    # confirms it the way a person does: the six-digit code (devCode in
+    # Development) sent to that mailbox.
+    st, sent = call(op, "/api/account/send-code", {"kind": "email"})
+    code = (sent or {}).get("devCode") if isinstance(sent, dict) else None
+    st2, _ = call(op, "/api/account/confirm-code", {"kind": "email", "code": code})
+    if st2 != 200:
+        raise SystemExit("confirm email %s: %s %s / %s" % (email, st, sent, st2))
     return op, int(sql("""select "Id" from users where "Email"='%s'""" % email))
 
 

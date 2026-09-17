@@ -15,6 +15,7 @@ public class BalanceCollector(
     PaymentGateway gateway,
     NotificationService notifications,
     RefundGateway refunds,
+    Gateways.PspRouter router,
     ILogger<BalanceCollector> log)
 {
     public sealed class Result
@@ -60,8 +61,29 @@ public class BalanceCollector(
                 if (!PartialPayment.ShouldRetry(first, booking.BalanceLastAttemptAt ?? first, now)) continue;
             }
 
-            var attempt = gateway.Charge(
-                booking.BalanceDue, booking.Payment?.Method ?? "card", booking.Payment?.CardLast4);
+            var method = booking.Payment?.Method ?? "card";
+
+            // docs/07 §13 — a deposit taken on a gateway's page leaves nothing
+            // this platform can charge again: no card number, and no token unless
+            // the guest kept one. The stand-in used to "collect" it anyway, so the
+            // host was paid in full for a stay half paid. The guest is asked to
+            // pay the rest on the gateway instead, on the same 72-hour clock a
+            // refused card gets.
+            if (router.IsLive(method))
+            {
+                booking.BalanceAttempts++;
+                booking.BalanceLastAttemptAt = now;
+                booking.BalanceFirstFailedAt ??= now;
+                booking.BalanceStatus = BalanceStatus.Retrying;
+                result.Refused++;
+
+                await NotifyAsync(booking, "Đến hạn trả phần còn lại",
+                    $"Đơn {booking.Reference} còn {booking.BalanceDue:#,##0}₫ cần trả. " +
+                    "Mở đơn và bấm \"Trả phần còn lại\" trong vòng 72 giờ, nếu không đơn sẽ bị huỷ.", ct);
+                continue;
+            }
+
+            var attempt = gateway.Charge(booking.BalanceDue, method, booking.Payment?.CardLast4);
 
             booking.BalanceAttempts++;
             booking.BalanceLastAttemptAt = now;
@@ -78,22 +100,50 @@ public class BalanceCollector(
                 continue;
             }
 
-            db.LedgerEntries.AddRange(Ledger.CollectBalance(booking, booking.BalanceDue, now));
-            db.BookingEvents.Add(BookingLifecycle.Note(
-                booking, "system", $"Đã thu nốt {booking.BalanceDue:#,##0}₫ theo lịch."));
-
-            booking.DepositPaid += booking.BalanceDue;
-            booking.BalanceDue = 0;
-            booking.BalanceStatus = BalanceStatus.Paid;
-            booking.BalanceFirstFailedAt = null;
+            await ApplyAsync(booking, "system", $"Đã thu nốt {booking.BalanceDue:#,##0}₫ theo lịch.", now, ct);
             result.Collected++;
-
-            await NotifyAsync(booking, "Đã thu nốt phần còn lại",
-                $"Đơn {booking.Reference} đã được thanh toán đủ.", ct);
         }
 
         if (result.Any) await db.SaveChangesAsync(ct);
         return result;
+    }
+
+    /// <summary>
+    /// docs/07 §13 — a gateway says the rest of a part-paid stay arrived. False
+    /// when the stay is no longer waiting for exactly that amount (it was
+    /// cancelled, or already settled another way), which tells the caller to
+    /// send the money back.
+    /// </summary>
+    public async Task<bool> CollectedAsync(int bookingId, decimal amount, string by, CancellationToken ct)
+    {
+        var booking = await db.Bookings
+            .Include(b => b.Payment).Include(b => b.Events).Include(b => b.Listing)
+            .FirstOrDefaultAsync(b => b.Id == bookingId, ct);
+
+        if (booking is null
+            || booking.Status is not (BookingStatus.Confirmed or BookingStatus.InProgress)
+            || booking.BalanceStatus is BalanceStatus.None or BalanceStatus.Paid or BalanceStatus.Failed
+            || booking.BalanceDue != amount)
+            return false;
+
+        await ApplyAsync(booking, by, $"Đã thu nốt {amount:#,##0}₫ qua cổng thanh toán.", DateTime.UtcNow, ct);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    /// <summary>The balance is in: one set of steps, whichever road brought it.</summary>
+    internal async Task ApplyAsync(Booking booking, string actor, string note, DateTime now, CancellationToken ct)
+    {
+        db.LedgerEntries.AddRange(Ledger.CollectBalance(booking, booking.BalanceDue, now));
+        db.BookingEvents.Add(BookingLifecycle.Note(booking, actor, note));
+
+        booking.DepositPaid += booking.BalanceDue;
+        booking.BalanceDue = 0;
+        booking.BalanceStatus = BalanceStatus.Paid;
+        booking.BalanceFirstFailedAt = null;
+
+        await NotifyAsync(booking, "Đã thu nốt phần còn lại",
+            $"Đơn {booking.Reference} đã được thanh toán đủ.", ct);
     }
 
     /// <summary>

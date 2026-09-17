@@ -12,7 +12,8 @@ namespace StayHost.Web.Services;
 /// </summary>
 public class ExperienceService(
     StayHostDbContext db, CatalogService catalog, NotificationService notifications,
-    PaymentGateway gateway, ILogger<ExperienceService> log)
+    PaymentGateway gateway, Gateways.PspRouter router, BankTransferSettings bank,
+    RefundGateway refunds, ILogger<ExperienceService> log)
 {
     /* ------------------------------------------------------------ reading */
 
@@ -177,8 +178,28 @@ public class ExperienceService(
             .Include(s => s.Experience)
             .FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot?.Experience is null) return (null, "Không tìm thấy suất này.");
+        if (!slot.Experience.IsPublished || slot.Experience.ModerationStatus != ExperienceModeration.Approved)
+            return (null, "Trải nghiệm này hiện không nhận đặt.");
 
         seats = Math.Max(1, seats);
+
+        // One hold per guest per session: opening checkout again (a reload, a
+        // changed seat count) hands the earlier seats back first instead of
+        // stacking a second claim on top.
+        var earlier = await db.ExperienceHolds
+            .Where(h => h.UserId == user.Id && h.SlotId == slotId)
+            .ToListAsync(ct);
+        foreach (var h in earlier)
+        {
+            if (h.IsLive(DateTime.UtcNow)) await ReleaseSeatsAsync(slotId, h.Seats, h.IsPrivate, ct);
+            db.ExperienceHolds.Remove(h);
+        }
+        if (earlier.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            await db.Entry(slot).ReloadAsync(ct);
+        }
+
         var check = ExperienceRules.CanBook(slot.Experience, slot, seats, wantsPrivate, DateTime.UtcNow);
         if (!check.Ok) return (null, check.Message);
 
@@ -275,6 +296,11 @@ public class ExperienceService(
             .FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot?.Experience is null) return (null, "Không tìm thấy suất này.");
 
+        // docs/09 §2.2 — on sale only once approved and published. A slot id is
+        // enough to reach this, so a rejected or withdrawn experience still sold.
+        if (!slot.Experience.IsPublished || slot.Experience.ModerationStatus != ExperienceModeration.Approved)
+            return (null, "Trải nghiệm này hiện không nhận đặt.");
+
         var seats = Math.Max(1, req.Seats);
 
         // docs/09 §2.7 (MR-E-06) — a guest paying against their own hold already
@@ -300,6 +326,12 @@ public class ExperienceService(
 
         var check = ExperienceRules.CanBook(slot.Experience, asIfFree, seats, req.Private, DateTime.UtcNow);
         if (!check.Ok) return (null, check.Message);
+
+        // Decided before any seat is claimed, so a method nobody can pay with
+        // never holds one.
+        var (road, refusal) = ProductCheckout.Choose(router, bank, req.PaymentMethod);
+        if (refusal is not null) return (null, refusal);
+        var method = ProductCheckout.Normalise(req.PaymentMethod);
 
         var price = Pricing.QuoteExperience(new Pricing.ExperienceRequest
         {
@@ -333,11 +365,16 @@ public class ExperienceService(
         // docs/07 §2.3 — a bank transfer is not charged here. The ticket is
         // written down holding its seats and stays unconfirmed until the money is
         // found on a statement; the seats come back on the timer if it never is.
-        var byTransfer = !PaymentMethods.ChargesOnBooking(req.PaymentMethod);
+        //
+        // docs/07 §13 — a method a licensed gateway serves waits the same way:
+        // the guest leaves for the gateway's page and the ticket is confirmed by
+        // ConfirmPaidAsync once the gateway says the money moved.
+        var byTransfer = road == ProductCheckout.Road.Transfer;
+        var waits = road != ProductCheckout.Road.StandIn;
 
-        if (!byTransfer)
+        if (!waits)
         {
-            var attempt = gateway.Charge(price.Total, req.PaymentMethod ?? "card", req.CardLast4);
+            var attempt = gateway.Charge(price.Total, method, req.CardLast4);
 
             if (!attempt.Ok)
             {
@@ -366,15 +403,16 @@ public class ExperienceService(
             Total = price.Total,
             HostServiceFee = price.HostServiceFee,
             HostPayout = price.HostPayout,
-            Status = byTransfer ? ExperienceBookingStatus.AwaitingPayment : ExperienceBookingStatus.Confirmed
+            Status = waits ? ExperienceBookingStatus.AwaitingPayment : ExperienceBookingStatus.Confirmed
         };
 
         db.ExperienceBookings.Add(booking);
         await db.SaveChangesAsync(ct);
 
         // Nothing else happens yet: no capture, no word to the host. Both are
-        // done by BankTransferService the moment the money is found.
-        if (byTransfer) return (booking, null);
+        // done the moment the money is found — by BankTransferService for a
+        // transfer, by PspCheckout for a gateway.
+        if (waits) return (booking, null);
 
         db.LedgerEntries.AddRange(Ledger.CaptureExperience(booking, DateTime.UtcNow));
         await db.SaveChangesAsync(ct);
@@ -393,7 +431,22 @@ public class ExperienceService(
     /// docs/07 §2.3 — the money for a transfer-booked ticket has been found on a
     /// statement. This is the rest of BookAsync, run late.
     /// </summary>
-    public async Task ConfirmTransferAsync(ExperienceBooking booking, CancellationToken ct)
+    /// <summary>
+    /// docs/07 §13 — a gateway says the money for this ticket moved. False when
+    /// the ticket stopped waiting for it (it lapsed, or another visit paid it),
+    /// which tells the caller to send the money back.
+    /// </summary>
+    public async Task<bool> ConfirmPaidAsync(int bookingId, CancellationToken ct)
+    {
+        var booking = await db.ExperienceBookings.FirstOrDefaultAsync(b => b.Id == bookingId, ct);
+        if (booking is null || booking.Status != ExperienceBookingStatus.AwaitingPayment) return false;
+
+        await ConfirmTransferAsync(booking, ct, "Đã đặt trải nghiệm");
+        return true;
+    }
+
+    public async Task ConfirmTransferAsync(
+        ExperienceBooking booking, CancellationToken ct, string title = "Đã nhận được chuyển khoản")
     {
         if (booking.Status != ExperienceBookingStatus.AwaitingPayment) return;
 
@@ -408,12 +461,12 @@ public class ExperienceService(
 
         await notifications.QueueWithEmailAsync(
             guest, NotificationKind.BookingConfirmed,
-            "Đã nhận được chuyển khoản",
+            title,
             $"{slot?.Experience?.Title} · {booking.Seats} chỗ · mã {booking.Reference}.",
             "/experiences", ct);
         await db.SaveChangesAsync(ct);
 
-        log.LogInformation("Experience {Reference} confirmed by bank transfer.", booking.Reference);
+        log.LogInformation("Experience {Reference} confirmed after payment.", booking.Reference);
     }
 
     /// <summary>
@@ -425,8 +478,18 @@ public class ExperienceService(
     {
         var cutoff = DateTime.UtcNow - BankTransfers.Window;
 
+        // A gateway visit is over well before a transfer window is: the seats
+        // come back once the gateway's own window has passed twice over. Money
+        // that still lands afterwards is returned by PspCheckout.
+        var gatewayCutoff = DateTime.UtcNow - PaymentSession.Window * 2;
+
         var stale = await db.ExperienceBookings
-            .Where(b => b.Status == ExperienceBookingStatus.AwaitingPayment && b.CreatedAt <= cutoff)
+            .Where(b => b.Status == ExperienceBookingStatus.AwaitingPayment
+                        && (b.CreatedAt <= cutoff
+                            || (b.CreatedAt <= gatewayCutoff
+                                && db.PaymentSessions.Any(s => s.ExperienceBookingId == b.Id)
+                                && !db.PaymentSessions.Any(s => s.ExperienceBookingId == b.Id
+                                                                && s.Status == PaymentSessionStatus.Paid))))
             .Take(200)
             .ToListAsync(ct);
         if (stale.Count == 0) return 0;
@@ -488,6 +551,21 @@ public class ExperienceService(
 
         db.LedgerEntries.AddRange(Ledger.RefundExperience(booking, refund, DateTime.UtcNow));
         await db.SaveChangesAsync(ct);
+
+        // docs/07 §10 — the refund goes back the way the ticket was paid. The
+        // books used to say it had, with no call to any gateway.
+        var sent = await refunds.SendForAsync(
+            s => s.ExperienceBookingId == booking.Id, refund, booking.Reference, "card", null, "system", ct);
+
+        if (sent.Bounced > 0)
+        {
+            db.LedgerEntries.AddRange(Ledger.RefundKeptAsCredit(
+                booking.Id, null, booking.Reference, sent.Bounced, DateTime.UtcNow));
+            db.CreditEntries.Add(CreditLedger.Grant(
+                booking.GuestUserId, sent.Bounced, CreditReason.Returned,
+                $"Hoàn vé {booking.Reference} — thẻ không nhận được", DateTime.UtcNow));
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     /* --------------------------------------------------------- the host */
@@ -911,7 +989,7 @@ public class ExperienceService(
         if (await OwnedAsync(user, slot.ExperienceId, ct) is null)
             return "Bạn không có quyền với trải nghiệm này.";
 
-        await CallOffAsync(slot, reason, ct);
+        await CallOffAsync(slot, reason, ct, byProvider: true);
         return null;
     }
 
@@ -929,7 +1007,11 @@ public class ExperienceService(
     /// Calls a session off and refunds everyone on it in full. Used both by the
     /// host and by the sweep that enforces the minimum party size.
     /// </summary>
-    public async Task CallOffAsync(ExperienceSlot slot, string reason, CancellationToken ct)
+    /// <param name="byProvider">
+    /// docs/09 §2.8 — the host pulled out, so each guest also gets TN-D in
+    /// balance. The sweep for too few people passes false: nobody is at fault.
+    /// </param>
+    public async Task CallOffAsync(ExperienceSlot slot, string reason, CancellationToken ct, bool byProvider = false)
     {
         var tickets = await db.ExperienceBookings
             .Include(b => b.Slot)
@@ -950,6 +1032,16 @@ public class ExperienceService(
             // Nobody pays for a session that was called off, whatever the reason.
             await ReleaseAsync(ticket, ticket.Total, ExperienceBookingStatus.CancelledWithSlot, reason, ct);
 
+            var credit = byProvider ? ExperienceRules.ProviderCancelCredit(ticket.Total) : 0m;
+            if (credit > 0)
+            {
+                db.CreditEntries.Add(CreditLedger.Grant(
+                    ticket.GuestUserId, credit, CreditReason.Goodwill,
+                    $"Đền bù vì người dẫn huỷ suất — vé {ticket.Reference}", now));
+                db.LedgerEntries.AddRange(Ledger.GrantCredit(
+                    null, credit, $"Đền bù huỷ suất trải nghiệm {ticket.Reference}", now));
+            }
+
             var others = ExperienceRules.AlternativesFor(siblings, slot.Id, ticket.Seats, now);
             var suggestion = others.Count == 0
                 ? ""
@@ -958,7 +1050,8 @@ public class ExperienceService(
             await notifications.QueueWithEmailAsync(
                 ticket.GuestUser, NotificationKind.BookingCancelled,
                 "Suất trải nghiệm đã bị huỷ",
-                $"{reason} Toàn bộ {ticket.Total:#,##0}₫ đã được hoàn lại.{suggestion}",
+                $"{reason} Toàn bộ {ticket.Total:#,##0}₫ đã được hoàn lại." +
+                (credit > 0 ? $" Bạn được tặng thêm {credit:#,##0}₫ số dư Staylio." : "") + suggestion,
                 "/experiences", ct);
         }
 

@@ -57,7 +57,8 @@ public class HostTeamController(
             c.Paid)).ToList();
 
         var helpingRows = await db.CoHosts
-            .Where(c => (c.CoHostUserId == user.Id || c.Email == user.Email) && c.Status != CoHostStatus.Revoked)
+            .Where(c => (c.CoHostUserId == user.Id || (user.EmailConfirmed && c.Email == user.Email))
+                        && c.Status != CoHostStatus.Revoked)
             .OrderByDescending(c => c.InvitedAt)
             .Select(c => new
             {
@@ -171,7 +172,9 @@ public class HostTeamController(
             return Ok(await ToDtoAsync(existing, ct));
         }
 
-        var invitee = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        // Bound to an account only once that account has proved the address;
+        // otherwise the invitation waits for whoever does (see Respond).
+        var invitee = await db.Users.FirstOrDefaultAsync(u => u.Email == email && u.EmailConfirmed, ct);
 
         var invite = new CoHost
         {
@@ -206,9 +209,16 @@ public class HostTeamController(
         var invite = await db.CoHosts.FirstOrDefaultAsync(c => c.Id == id, ct);
         if (invite is null) return NotFound();
 
-        var mine = invite.CoHostUserId == user.Id ||
-                   string.Equals(invite.Email, user.Email, StringComparison.OrdinalIgnoreCase);
-        if (!mine) return this.Denied();
+        // An invitation sent to an address belongs to whoever proved they own it.
+        // Registration signs a person in before the address is confirmed, so
+        // matching on the typed address alone let anybody sign up as the invitee
+        // and take a Full co-host seat on somebody else's listing.
+        var byAddress = string.Equals(invite.Email, user.Email, StringComparison.OrdinalIgnoreCase);
+        var mine = invite.CoHostUserId == user.Id || byAddress && user.EmailConfirmed;
+        if (!mine)
+            return byAddress
+                ? this.Denied("Xác nhận địa chỉ email của bạn trước khi nhận lời mời này.")
+                : this.Denied();
         if (invite.Status is CoHostStatus.Revoked) return BadRequest(new { message = "Lời mời đã bị thu hồi." });
 
         invite.CoHostUserId = user.Id;

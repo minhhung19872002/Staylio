@@ -13,9 +13,18 @@ namespace StayHost.Web.Controllers;
 [Route("api/host")]
 public class HostController(
     StayHostDbContext db, AuthService auth, NotificationService notifications,
-    BookingService rules, ReviewService reviews)
+    BookingService rules, ReviewService reviews, HostAccess access)
     : ControllerBase
 {
+    /// <summary>
+    /// docs/01 QL-19 — the owner, or a co-host whose grant covers this scope.
+    /// These endpoints used to compare the listing's host with the caller's own
+    /// profile, so the scopes an owner handed out did nothing: a co-host lent
+    /// the calendar could not open it.
+    /// </summary>
+    private Task<bool> MayAsync(User user, Listing listing, CoHostScope scope, CancellationToken ct) =>
+        access.MayAsync(user, listing, scope, ct);
+
     private async Task<(User? User, HostProfile? Profile)> ResolveAsync(CancellationToken ct)
     {
         var user = await auth.CurrentUserAsync(ct);
@@ -130,7 +139,7 @@ public class HostController(
         // outright, so search behaves exactly as before.
         listing.ReviewStatus = ListingModeration.StatusForNew(
             listing.IsPublished, ModerationSettings.Current.NewListingsRequireApproval);
-        if (listing.ReviewStatus == ListingReviewStatus.Pending)
+        if (listing.ReviewStatus == ListingReviewStatus.Pending && listing.IsPublished)
             listing.SubmittedForReviewAt = DateTime.UtcNow;
 
         db.Listings.Add(listing);
@@ -144,7 +153,6 @@ public class HostController(
     {
         var (user, profile) = await ResolveAsync(ct);
         if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
-        if (profile is null) return this.Denied();
 
         var listing = await db.Listings
             .Include(l => l.Images)
@@ -152,21 +160,32 @@ public class HostController(
             .FirstOrDefaultAsync(l => l.Id == id, ct);
 
         if (listing is null) return NotFound();
-        if (listing.HostId != profile.Id) return this.Denied();
+        if (!await MayAsync(user, listing, CoHostScope.Listing, ct)) return this.Denied();
 
         var error = Validate(req);
         if (error is not null) return BadRequest(new { message = error });
 
+        // The base rate and fees are Pricing's, even inside the listing form.
+        var pricesMoved = req.PricePerNight != listing.PricePerNight || req.CleaningFee != listing.CleaningFee;
+        if (pricesMoved && !await MayAsync(user, listing, CoHostScope.Pricing, ct))
+            return this.Denied("Bạn không có quyền đổi giá của chỗ nghỉ này.");
+
+        // A sanction is on the owner's account, not on whoever is editing.
+        var owner = listing.HostId == profile?.Id
+            ? user
+            : await db.Users.FirstAsync(u => u.HostProfile!.Id == listing.HostId, ct);
+
         // docs/01 YT-08 — remember the price before the edit so a drop can be told apart.
         var oldPrice = listing.PricePerNight;
 
-        await ApplyAsync(listing, req, user, ct);
+        await ApplyAsync(listing, req, owner, ct);
 
         // docs/01 AT-01 — editing an approved place keeps it live; a rejected place
         // the host publishes again is a resubmission and goes back to the queue.
         var newStatus = ListingModeration.StatusOnSave(
             listing.ReviewStatus, listing.IsPublished, ModerationSettings.Current.NewListingsRequireApproval);
-        if (newStatus == ListingReviewStatus.Pending && listing.ReviewStatus != ListingReviewStatus.Pending)
+        if (newStatus == ListingReviewStatus.Pending && listing.IsPublished
+            && (listing.ReviewStatus != ListingReviewStatus.Pending || listing.SubmittedForReviewAt is null))
         {
             listing.SubmittedForReviewAt = DateTime.UtcNow;
             listing.ReviewNote = null;
@@ -240,7 +259,7 @@ public class HostController(
 
         var listing = await db.Listings.FirstOrDefaultAsync(l => l.Id == id, ct);
         if (listing is null) return NotFound();
-        if (profile is null || listing.HostId != profile.Id) return this.Denied();
+        if (!await MayAsync(user, listing, CoHostScope.Calendar, ct)) return this.Denied();
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -256,7 +275,7 @@ public class HostController(
             .ToListAsync(ct);
 
         var rules = await db.PriceRules
-            .Where(r => r.ListingId == id && r.To >= today)
+            .Where(r => r.ListingId == id && r.To >= today && r.Kind != PriceRuleKind.MinStay)
             .OrderBy(r => r.From)
             .Select(r => new PriceRuleDto(r.Id, r.Name, r.From, r.To, r.NightlyRate))
             .ToListAsync(ct);
@@ -272,7 +291,7 @@ public class HostController(
 
         var listing = await db.Listings.FirstOrDefaultAsync(l => l.Id == req.ListingId, ct);
         if (listing is null) return NotFound();
-        if (profile is null || listing.HostId != profile.Id) return this.Denied();
+        if (!await MayAsync(user, listing, CoHostScope.Calendar, ct)) return this.Denied();
         if (req.To < req.From) return BadRequest(new { message = "Ngày kết thúc phải sau ngày bắt đầu." });
 
         var clash = await db.Bookings.AnyAsync(b =>
@@ -295,7 +314,9 @@ public class HostController(
 
         var block = await db.CalendarBlocks.Include(b => b.Listing).FirstOrDefaultAsync(b => b.Id == id, ct);
         if (block is null) return NoContent();
-        if (profile is null || block.Listing!.HostId != profile.Id) return this.Denied();
+        if (!await MayAsync(user, block.Listing!, CoHostScope.Calendar, ct)) return this.Denied();
+        if (block.IsHostCancelPenalty)
+            return BadRequest(new { message = "Những ngày của đơn bạn đã huỷ bị chặn và không mở lại được." });
 
         db.CalendarBlocks.Remove(block);
         await db.SaveChangesAsync(ct);
@@ -312,13 +333,14 @@ public class HostController(
 
         var listing = await db.Listings.FirstOrDefaultAsync(l => l.Id == req.ListingId, ct);
         if (listing is null) return NotFound();
-        if (profile is null || listing.HostId != profile.Id) return this.Denied();
+        if (!await MayAsync(user, listing, CoHostScope.Pricing, ct)) return this.Denied();
 
         if (req.To < req.From) return BadRequest(new { message = "Ngày kết thúc phải sau ngày bắt đầu." });
         if (req.NightlyRate < 50_000) return BadRequest(new { message = "Giá mỗi đêm tối thiểu 50.000₫." });
 
         var overlaps = await db.PriceRules.AnyAsync(r =>
-            r.ListingId == req.ListingId && r.From <= req.To && req.From <= r.To, ct);
+            r.ListingId == req.ListingId && r.Kind != PriceRuleKind.MinStay
+            && r.From <= req.To && req.From <= r.To, ct);
         if (overlaps) return Conflict(new { message = "Khoảng ngày này đã có quy tắc giá khác." });
 
         var rule = new PriceRule
@@ -343,7 +365,7 @@ public class HostController(
 
         var rule = await db.PriceRules.Include(r => r.Listing).FirstOrDefaultAsync(r => r.Id == id, ct);
         if (rule is null) return NoContent();
-        if (profile is null || rule.Listing!.HostId != profile.Id) return this.Denied();
+        if (!await MayAsync(user, rule.Listing!, CoHostScope.Pricing, ct)) return this.Denied();
 
         db.PriceRules.Remove(rule);
         await db.SaveChangesAsync(ct);
@@ -669,7 +691,7 @@ public class HostController(
             .FirstOrDefaultAsync(b => b.Id == id, ct);
 
         if (booking is null) return NotFound();
-        if (profile is null || booking.Listing!.HostId != profile.Id) return this.Denied();
+        if (!await MayAsync(user, booking.Listing!, CoHostScope.Bookings, ct)) return this.Denied();
 
         var verb = decision.ToLowerInvariant();
         if (verb is not ("confirm" or "decline"))
@@ -794,7 +816,7 @@ public class HostController(
             {
                 r.Id, r.ListingId,
                 ListingTitle = r.Listing!.Title,
-                r.AuthorName, r.Rating, r.Text, r.CreatedAt,
+                r.AuthorName, r.Rating, r.Text, r.CreatedAt, r.PublishedAt,
                 r.HostReply, r.HostRepliedAt
             })
             .ToListAsync(ct);
@@ -804,8 +826,8 @@ public class HostController(
             r.HostReply, r.HostRepliedAt,
             // The same two conditions the reply endpoint enforces, said out loud
             // so the button is not offered where the server would refuse it.
-            r.HostReply is null && r.CreatedAt.AddDays(30) >= now,
-            r.CreatedAt.AddDays(30))).ToList());
+            r.HostReply is null && r.PublishedAt!.Value.AddDays(30) >= now,
+            r.PublishedAt!.Value.AddDays(30))).ToList());
     }
 
     /// <summary>
@@ -828,7 +850,15 @@ public class HostController(
         if (review.HostReply is not null)
             return Conflict(new { message = "Bạn chỉ được trả lời một lần cho mỗi đánh giá." });
 
-        if (review.CreatedAt.AddDays(30) < DateTime.UtcNow)
+        // docs/03 §7 — a review inside the blind window has not been published,
+        // and answering it would be answering something the host cannot yet see.
+        if (review.PublishedAt is not { } published)
+            return BadRequest(new { message = "Đánh giá này chưa được công khai." });
+
+        // "30 ngày kể từ khi đánh giá được công khai" — from publication, not
+        // from writing: a review published on day 14 of its window lost up to
+        // two of the host's four weeks.
+        if (published.AddDays(30) < DateTime.UtcNow)
             return BadRequest(new { message = "Đã quá 30 ngày kể từ khi đánh giá được công khai." });
 
         var text = (req.Text ?? "").Trim();

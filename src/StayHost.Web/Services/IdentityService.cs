@@ -89,9 +89,13 @@ public class IdentityService(
         }
         else
         {
-            // No SMS gateway in this build. The code is logged so the flow can be
-            // followed; a deployment swaps this for a real provider.
-            log.LogInformation("SMS to {Phone}: mã xác thực Staylio {Code}", sentTo, code);
+            // No SMS gateway in this build. Outside Development the code never
+            // reaches the log: production logs are read by more people than the
+            // account holder, and a code in them is a way into the account.
+            if (env.IsDevelopment())
+                log.LogInformation("SMS to {Phone}: mã xác thực Staylio {Code}", sentTo, code);
+            else
+                log.LogWarning("Chưa có cổng SMS: không gửi được mã tới {Phone}.", sentTo);
         }
 
         await db.SaveChangesAsync(ct);
@@ -177,8 +181,7 @@ public class IdentityService(
 
             existing.LastUsedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
-            await auth.SignInAsync(existing.User, ct);
-            return new(true, null, existing.User);
+            return await auth.SignInOrChallengeAsync(existing.User, ct);
         }
 
         // Attaching to an account by email only works when this platform already
@@ -222,10 +225,9 @@ public class IdentityService(
         });
 
         await db.SaveChangesAsync(ct);
-        await auth.SignInAsync(user, ct);
 
         log.LogInformation("{Provider} sign-in for user {UserId}.", provider, user.Id);
-        return new(true, null, user);
+        return await auth.SignInOrChallengeAsync(user, ct);
     }
 
     /// <summary>What is attached to this account, so somebody can see and unlink it.</summary>

@@ -310,6 +310,9 @@ export const api = {
   adminTransactions: q => request(`/api/admin/finance/transactions${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   adminRefund: (bookingId, body) =>
     request(`/api/admin/finance/transactions/${bookingId}/refund`, { method: 'POST', body: JSON.stringify(body) }),
+  /** docs/03 §4, docs/06 §8 — the guest gets everything back, the host Q-A from the fund. */
+  adminForceMajeure: (bookingId, reason) =>
+    request(`/api/admin/finance/bookings/${bookingId}/force-majeure`, { method: 'POST', body: JSON.stringify({ reason }) }),
   adminAdjustPayout: (bookingId, body) =>
     request(`/api/admin/finance/payouts/${bookingId}/adjust`, { method: 'POST', body: JSON.stringify(body) }),
   /* docs/07 §13 — the transfers the platform owes hosts, and the file for them.
@@ -447,6 +450,9 @@ export const api = {
   experience: idOrSlug => request(`/api/experiences/${idOrSlug}`),
   experienceQuote: (slotId, seats, priv) =>
     request(`/api/experiences/slots/${slotId}/quote${qs({ seats, priv })}`),
+  /** docs/09 §2.7 — the seats leave the session for ten minutes while the guest pays. */
+  holdExperience: (slotId, body) =>
+    request(`/api/experiences/slots/${slotId}/hold`, { method: 'POST', body: JSON.stringify(body) }),
   bookExperience: (slotId, body) =>
     request(`/api/experiences/slots/${slotId}/book`, { method: 'POST', body: JSON.stringify(body) }),
   experienceBookings: () => request('/api/experiences/bookings'),

@@ -238,6 +238,21 @@ public class AuthService(StayHostDbContext db, IHttpContextAccessor accessor)
     public Task SignInAsync(User user, CancellationToken ct) => IssueSessionAsync(user, ct);
 
     /// <summary>
+    /// docs/01 TK-08, docs/08 §3 — every door that proves who somebody is, other
+    /// than the password form, still owes the second factor. A reset link or a
+    /// Google account used to open a full session on an account with two-factor
+    /// on — the admin console included.
+    /// </summary>
+    public async Task<AuthResult> SignInOrChallengeAsync(User user, CancellationToken ct)
+    {
+        if (user.TwoFactorEnabled)
+            return new(true, null, user, await IssueChallengeAsync(user, ct));
+
+        await IssueSessionAsync(user, ct);
+        return new(true, null, user);
+    }
+
+    /// <summary>
     /// docs/01 TK-02 — an account created from a Google, Apple or Facebook
     /// identity. There is no password: the provider is the way in, and the
     /// account has to set one before unlinking the last provider.
@@ -473,8 +488,7 @@ public class AuthService(StayHostDbContext db, IHttpContextAccessor accessor)
         foreach (var s in sessions) s.RevokedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        await IssueSessionAsync(entry.User, ct);
-        return new(true, null, entry.User);
+        return await SignInOrChallengeAsync(entry.User, ct);
     }
 
     /* --------------------------------------------------------- verification */

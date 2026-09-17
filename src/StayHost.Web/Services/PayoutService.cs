@@ -28,8 +28,12 @@ public class PayoutService(
         var today = asOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var now = DateTime.UtcNow;
 
+        // Sent is left alone: that booking is already a row in a transfer file
+        // waiting on the bank. Picking it up again put it in a second file the
+        // next day — the retry step below is one day — and paid the host twice
+        // once both were executed. A refused file puts it back to Scheduled.
         var due = await db.Payments
-            .Where(p => p.PayoutStatus != PayoutStatus.Paid
+            .Where(p => p.PayoutStatus != PayoutStatus.Paid && p.PayoutStatus != PayoutStatus.Sent
                         && p.PayoutDueOn != null && p.PayoutDueOn <= today
                         && p.Status == PaymentStatus.Captured)
             .Include(p => p.Booking!).ThenInclude(b => b.Listing!).ThenInclude(l => l.Host!).ThenInclude(h => h.User)
@@ -220,7 +224,7 @@ public class PayoutService(
             await notifications.QueueWithEmailAsync(host.User, NotificationKind.PayoutSent,
                 "Đã lên lệnh chuyển tiền cho bạn",
                 PayoutFiles.QueuedNotice(deduction.Transfer, what, reference) + note,
-                "/hosting/earnings", ct);
+                "/hosting?tab=earnings", ct);
         }
 
         if (paid + held + failed > 0)
@@ -327,7 +331,7 @@ public class PayoutService(
                 "Đã lên lệnh chuyển đợt tiền theo tháng",
                 PayoutFiles.QueuedNotice(deduction.Transfer,
                     $"đơn {booking.Reference} (đơn dài, trả theo tháng)", reference),
-                "/hosting/earnings", ct);
+                "/hosting?tab=earnings", ct);
         }
 
         if (paid + held + failed > 0)
@@ -431,7 +435,7 @@ public class PayoutService(
 
         await notifications.QueueWithEmailAsync(batch.Host?.User, NotificationKind.PayoutSent,
             "Đã chuyển tiền cho bạn",
-            PayoutFiles.SettledNotice(batch.Amount, what, batch.Reference), "/hosting/earnings", ct);
+            PayoutFiles.SettledNotice(batch.Amount, what, batch.Reference), "/hosting?tab=earnings", ct);
 
         await db.SaveChangesAsync(ct);
 
@@ -596,7 +600,7 @@ public class PayoutService(
                         await notifications.QueueWithEmailAsync(u, NotificationKind.PayoutSent,
                             "Đã lên lệnh chuyển tiền trải nghiệm",
                             PayoutFiles.QueuedNotice(b.HostPayout, $"đơn {b.Reference}", reference),
-                            "/hosting/earnings", ct);
+                            "/hosting?tab=earnings", ct);
                     break;
                 case PayResult.Held: held++; break;
                 default: failed++; break;
@@ -633,7 +637,7 @@ public class PayoutService(
                         await notifications.QueueWithEmailAsync(u, NotificationKind.PayoutSent,
                             "Đã lên lệnh chuyển tiền dịch vụ",
                             PayoutFiles.QueuedNotice(b.ProviderPayout, $"đơn {b.Reference}", reference),
-                            "/hosting/earnings", ct);
+                            "/hosting?tab=earnings", ct);
                     break;
                 case PayResult.Held: held++; break;
                 default: failed++; break;

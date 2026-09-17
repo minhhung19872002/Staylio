@@ -12,7 +12,8 @@ namespace StayHost.Web.Services;
 /// </summary>
 public class ServiceMarketService(
     StayHostDbContext db, CatalogService catalog, NotificationService notifications,
-    PaymentGateway gateway, ILogger<ServiceMarketService> log)
+    PaymentGateway gateway, Gateways.PspRouter router, BankTransferSettings bank,
+    RefundGateway refunds, ILogger<ServiceMarketService> log)
 {
     /// <summary>
     /// The statuses that have given the provider's time back. Everything else —
@@ -365,6 +366,10 @@ public class ServiceMarketService(
         var offering = await db.ServiceOfferings.FirstOrDefaultAsync(o => o.Id == offeringId, ct);
         if (offering is null) return (null, "Không tìm thấy dịch vụ này.");
 
+        // docs/09 §3.2 — the certificate sweep hides a listing by unpublishing
+        // it; a saved link still reached this and booked the job anyway.
+        if (!offering.IsPublished) return (null, "Dịch vụ này hiện không nhận đặt.");
+
         // Before the first query touches it — see AsInstant.
         req = req with { StartsAt = AsInstant(req.StartsAt) };
 
@@ -393,11 +398,17 @@ public class ServiceMarketService(
         // down holding its place in the provider's day, and stays unconfirmed
         // until the money is found on a statement. Nothing is captured, so the
         // provider is not told to turn up for a job nobody has paid for.
-        var byTransfer = !PaymentMethods.ChargesOnBooking(req.PaymentMethod);
+        //
+        // docs/07 §13 — a method a licensed gateway serves waits the same way,
+        // until PspCheckout hears the money moved (ConfirmPaidAsync).
+        var (road, refusal) = ProductCheckout.Choose(router, bank, req.PaymentMethod);
+        if (refusal is not null) return (null, refusal);
+        var waits = road != ProductCheckout.Road.StandIn;
 
-        if (!byTransfer)
+        if (!waits)
         {
-            var attempt = gateway.Charge(price.Total, req.PaymentMethod ?? "card", req.CardLast4);
+            var attempt = gateway.Charge(
+                price.Total, ProductCheckout.Normalise(req.PaymentMethod), req.CardLast4);
             if (!attempt.Ok) return (null, attempt.Reason);
         }
 
@@ -425,7 +436,7 @@ public class ServiceMarketService(
             AddOnsTotal = price.AddOnsTotal,
             TravelFee = price.TravelFee,
             ConditionsConfirmed = req.ConditionsConfirmed,
-            Status = byTransfer ? ServiceBookingStatus.AwaitingPayment : ServiceBookingStatus.Confirmed,
+            Status = waits ? ServiceBookingStatus.AwaitingPayment : ServiceBookingStatus.Confirmed,
             AddOns = chosen
                 .Select(a => new ServiceBookingAddOn { AddOnId = a.Id, Name = a.Name, Price = a.Price })
                 .ToList()
@@ -435,8 +446,8 @@ public class ServiceMarketService(
         await db.SaveChangesAsync(ct);
 
         // Nothing else happens yet: no capture, no notification to the provider.
-        // BankTransferService does both the moment the money is found.
-        if (byTransfer) return (booking, null);
+        // BankTransferService or PspCheckout does both the moment the money is found.
+        if (waits) return (booking, null);
 
         db.LedgerEntries.AddRange(Ledger.CaptureService(booking, DateTime.UtcNow));
         await db.SaveChangesAsync(ct);
@@ -457,7 +468,21 @@ public class ServiceMarketService(
     /// statement. This is the rest of BookAsync, run late: the capture and the
     /// notifications that were deliberately not done at booking time.
     /// </summary>
-    public async Task ConfirmTransferAsync(ServiceBooking booking, CancellationToken ct)
+    /// <summary>
+    /// docs/07 §13 — a gateway says the money for this job moved. False when the
+    /// job stopped waiting for it, which tells the caller to send it back.
+    /// </summary>
+    public async Task<bool> ConfirmPaidAsync(int bookingId, CancellationToken ct)
+    {
+        var booking = await db.ServiceBookings.FirstOrDefaultAsync(b => b.Id == bookingId, ct);
+        if (booking is null || booking.Status != ServiceBookingStatus.AwaitingPayment) return false;
+
+        await ConfirmTransferAsync(booking, ct, "Đã đặt dịch vụ");
+        return true;
+    }
+
+    public async Task ConfirmTransferAsync(
+        ServiceBooking booking, CancellationToken ct, string title = "Đã nhận được chuyển khoản")
     {
         if (booking.Status != ServiceBookingStatus.AwaitingPayment) return;
 
@@ -470,12 +495,12 @@ public class ServiceMarketService(
 
         await notifications.QueueWithEmailAsync(
             guest, NotificationKind.BookingConfirmed,
-            "Đã nhận được chuyển khoản",
+            title,
             $"{offering?.Title} · {booking.StartsAt:dd/MM HH:mm} · mã {booking.Reference}.",
             "/services/bookings", ct);
         await db.SaveChangesAsync(ct);
 
-        log.LogInformation("Service {Reference} confirmed by bank transfer.", booking.Reference);
+        log.LogInformation("Service {Reference} confirmed after payment.", booking.Reference);
     }
 
     /// <summary>
@@ -486,9 +511,15 @@ public class ServiceMarketService(
     public async Task<int> ExpireAwaitingTransfersAsync(CancellationToken ct)
     {
         var cutoff = DateTime.UtcNow - BankTransfers.Window;
+        var gatewayCutoff = DateTime.UtcNow - PaymentSession.Window * 2;
 
         var stale = await db.ServiceBookings
-            .Where(b => b.Status == ServiceBookingStatus.AwaitingPayment && b.CreatedAt <= cutoff)
+            .Where(b => b.Status == ServiceBookingStatus.AwaitingPayment
+                        && (b.CreatedAt <= cutoff
+                            || (b.CreatedAt <= gatewayCutoff
+                                && db.PaymentSessions.Any(s => s.ServiceBookingId == b.Id)
+                                && !db.PaymentSessions.Any(s => s.ServiceBookingId == b.Id
+                                                                && s.Status == PaymentSessionStatus.Paid))))
             .Take(200)
             .ToListAsync(ct);
         if (stale.Count == 0) return 0;
@@ -537,8 +568,28 @@ public class ServiceMarketService(
 
         db.LedgerEntries.AddRange(Ledger.RefundService(booking, refund, DateTime.UtcNow));
         await db.SaveChangesAsync(ct);
+        await SendRefundAsync(booking, refund, ct);
 
         return null;
+    }
+
+    /// <summary>
+    /// docs/07 §10 — the money goes back the way the job was paid; what the card
+    /// will not take becomes the guest's balance. The books used to record the
+    /// refund with no call to anybody.
+    /// </summary>
+    private async Task SendRefundAsync(ServiceBooking booking, decimal refund, CancellationToken ct)
+    {
+        var sent = await refunds.SendForAsync(
+            s => s.ServiceBookingId == booking.Id, refund, booking.Reference, "card", null, "system", ct);
+        if (sent.Bounced <= 0) return;
+
+        db.LedgerEntries.AddRange(Ledger.RefundKeptAsCredit(
+            null, booking.Id, booking.Reference, sent.Bounced, DateTime.UtcNow));
+        db.CreditEntries.Add(CreditLedger.Grant(
+            booking.GuestUserId, sent.Bounced, CreditReason.Returned,
+            $"Hoàn dịch vụ {booking.Reference} — thẻ không nhận được", DateTime.UtcNow));
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>
@@ -641,6 +692,7 @@ public class ServiceMarketService(
         // second, special path that could disagree with the first.
         db.LedgerEntries.AddRange(Ledger.RefundService(booking, refund, now));
         await db.SaveChangesAsync(ct);
+        await SendRefundAsync(booking, refund, ct);
 
         await notifications.QueueWithEmailAsync(
             await db.Users.FirstAsync(u => u.Id == booking.GuestUserId, ct),

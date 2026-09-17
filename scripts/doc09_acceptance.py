@@ -28,6 +28,10 @@ def opener():
     return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
 
+# The shared gateway helper lives next to this file.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _gateway as gateway
+
 def call(op, p, b=None, m=None):
     d = json.dumps(b).encode() if b is not None else None
     r = urllib.request.Request(B + p, data=d,
@@ -98,9 +102,15 @@ def seats_taken(slot_id):
     return int(sql(f'select "SeatsTaken" from experience_slots where "Id" = {slot_id};'))
 
 
-def book(op, slot_id, seats, private=False):
-    return call(op, f"/api/experiences/slots/{slot_id}/book",
-                {"seats": seats, "private": private, "paymentMethod": "card", "cardLast4": "4242"})
+def book(op, slot_id, seats, private=False, **extra):
+    # docs/07 §13 — with VNPay wired the ticket waits on the gateway; the signed
+    # IPN finishes it, so a 200 here still means a paid, confirmed ticket.
+    st, res = call(op, f"/api/experiences/slots/{slot_id}/book",
+                   {"seats": seats, "private": private, "paymentMethod": "card", "cardLast4": "4242"} | extra)
+    st, res = gateway.finish(call, op, st, res, "ExperienceBookingId")
+    if isinstance(res, dict) and res.get("gatewaySettled") is False:
+        return 599, res
+    return st, res
 
 
 # ---------------------------------------------------------------- scenario 1
@@ -391,17 +401,14 @@ def seat_hold():
     held = seats_taken(slot)
 
     # While A holds three of four seats, B cannot take two.
-    st2, r2 = call(b, f"/api/experiences/slots/{slot}/book",
-                   {"seats": 2, "paymentMethod": "card", "cardLast4": "4242"})
+    st2, r2 = book(b, slot, 2)
 
     ok("E-06", "Giu cho 10 phut: cho roi khoi suat ngay khi bat dau thanh toan",
        st == 200 and held == 3 and st2 != 200,
        f"taken={held}, nguoi khac dat 2 cho -> http={st2}")
 
     # A finishes paying against that hold: still three seats, not six.
-    st3, _ = call(a, f"/api/experiences/slots/{slot}/book",
-                  {"seats": 3, "holdId": (hold or {}).get("holdId"),
-                   "paymentMethod": "card", "cardLast4": "4242"})
+    st3, _ = book(a, slot, 3, holdId=(hold or {}).get("holdId"))
     after = seats_taken(slot)
 
     ok("E-06b", "Thanh toan tu luot giu cho khong tru cho hai lan",

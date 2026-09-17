@@ -63,7 +63,7 @@ export function Header() {
 
   return <>
     <div className="header-main">
-      <button className="brand" onClick={() => navigate('/')} aria-label="Staylio — về trang chủ">
+      <button className="brand" onClick={() => navigate('/')} aria-label={t('Staylio — về trang chủ')}>
         <BrandMark />
         <span className="brand-text">Staylio</span>
       </button>
@@ -72,7 +72,7 @@ export function Header() {
           the only site-wide route into the experience and service catalogues —
           while these were buttons, neither line had an inbound link anywhere.
           aria-current replaces aria-pressed: these are links now, not toggles. */}
-      <nav className="nav-tabs" aria-label="Loại dịch vụ">
+      <nav className="nav-tabs" aria-label={t('Loại dịch vụ')}>
         {TABS.map(tab => (
           <a key={tab.key} className={`nav-tab ${state.tab === tab.key ? 'is-active' : ''}`}
              href={tab.path}
@@ -101,7 +101,7 @@ export function Header() {
 
         {state.user && (
           <div className="menu-anchor">
-            <button className="icon-btn bell" aria-label="Thông báo" aria-expanded={state.menu === 'bell'}
+            <button className="icon-btn bell" aria-label={t('Thông báo')} aria-expanded={state.menu === 'bell'}
                     onClick={() => { openMenu('bell'); if (store.menu === 'bell') loadNotifications(); }}>
               <Icon name="star" size={18} />
               {!!state.notifications?.unread && <span className="bell-dot">{state.notifications.unread}</span>}
@@ -111,7 +111,7 @@ export function Header() {
         )}
 
         <button className="icon-btn" onClick={() => openOverlay('language')}
-                aria-label="Chọn ngôn ngữ và tiền tệ" title="Ngôn ngữ & tiền tệ">
+                aria-label={t('Chọn ngôn ngữ và tiền tệ')} title={t('Ngôn ngữ & tiền tệ')}>
           <Icon name="globe" size={18} />
         </button>
 
@@ -148,8 +148,8 @@ export function Header() {
 function UnreadBadge() {
   const state = useStore();
   const unread = state.user?.unreadMessages ?? 0;
-  if (unread > 0) return <span className="fav-count" title="Tin nhắn chưa đọc">{unread}</span>;
-  if (state.favCount > 0) return <span className="fav-count" title="Chỗ nghỉ đã lưu">{state.favCount}</span>;
+  if (unread > 0) return <span className="fav-count" title={t('Tin nhắn chưa đọc')}>{unread}</span>;
+  if (state.favCount > 0) return <span className="fav-count" title={t('Chỗ nghỉ đã lưu')}>{state.favCount}</span>;
   return null;
 }
 
@@ -335,7 +335,7 @@ function SearchBar({ wide, onSubmit, onQueryInput }) {
           {wide && <span className="seg-cap">{t('Khách')}</span>}
           <span className="seg-val">{guestLabel()}</span>
         </button>
-        <button type="submit" className="search-go" aria-label="Tìm kiếm">
+        <button type="submit" className="search-go" aria-label={t('Tìm kiếm')}>
           <Icon name="search" size={wide ? 17 : 15} />
         </button>
       </form>
@@ -536,7 +536,7 @@ function QuickBar() {
 
         <button className={`total-toggle ${state.showTotalPrice ? 'is-on' : ''}`}
                 aria-pressed={state.showTotalPrice}
-                title="Hiện giá mỗi đêm đã gồm phí dịch vụ, phí dọn dẹp và thuế"
+                title={t('Hiện giá mỗi đêm đã gồm phí dịch vụ, phí dọn dẹp và thuế')}
                 onClick={() => set({ showTotalPrice: !state.showTotalPrice })}>
           <span className="switch" aria-hidden="true" /> {t('Giá đã gồm thuế và phí')}
         </button>

@@ -463,7 +463,13 @@ public enum PriceRuleKind
     /// <summary>A season the host named, e.g. "Tết Nguyên đán".</summary>
     Season = 0,
     /// <summary>A price the host set on specific days from the calendar grid.</summary>
-    DayOverride = 1
+    DayOverride = 1,
+    /// <summary>
+    /// A minimum stay the host set on specific days without touching the price.
+    /// Its <see cref="PriceRule.NightlyRate"/> means nothing and is never read
+    /// for pricing (<c>Pricing.RateFor</c> only looks at the other two kinds).
+    /// </summary>
+    MinStay = 2
 }
 
 public class PriceRule
@@ -530,6 +536,15 @@ public class CalendarBlock
 
     /// <summary>The UID of the event upstream, so a re-sync updates instead of duplicating.</summary>
     public string? ExternalUid { get; set; }
+
+    /// <summary>
+    /// docs/03 §4 — the nights of a stay the host cancelled carry this prefix on
+    /// <see cref="ExternalUid"/>: "những ngày đó bị chặn, không cho đặt lại". The
+    /// host cannot lift them from the calendar.
+    /// </summary>
+    public const string HostCancelPrefix = "host-cancel:";
+
+    public bool IsHostCancelPenalty => ExternalUid?.StartsWith(HostCancelPrefix) == true;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

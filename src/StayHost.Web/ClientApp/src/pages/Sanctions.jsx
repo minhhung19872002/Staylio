@@ -53,8 +53,8 @@ export function MySanctions() {
         {rows.map(s => (
           <div key={s.id} className="stat" style={{ padding: 18 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <b style={{ fontSize: 16 }}>{s.levelLabel}</b>
-              {!!s.restrictionLabel && <span className="badge">{s.restrictionLabel}</span>}
+              <b style={{ fontSize: 16 }}>{t(s.levelLabel)}</b>
+              {!!s.restrictionLabel && <span className="badge">{t(s.restrictionLabel)}</span>}
               {s.overturnedOnAppeal && <span className="badge confirmed">{t('Đã gỡ theo khiếu nại')}</span>}
               {!!s.liftedAt && !s.overturnedOnAppeal && <span className="badge confirmed">{t('Đã được gỡ')}</span>}
             </div>

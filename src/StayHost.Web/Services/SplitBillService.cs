@@ -9,7 +9,9 @@ namespace StayHost.Web.Services;
 /// sending the invitations, turning a fully-paid split into a real booking, and
 /// giving the money back when the day runs out.
 /// </summary>
-public class SplitBillService(StayHostDbContext db, ILogger<SplitBillService> log)
+public class SplitBillService(
+    StayHostDbContext db, PaymentCompletion completion, NotificationService notifications,
+    WalletService wallet, RefundGateway refunds, ILogger<SplitBillService> log)
 {
     public async Task InviteAsync(BillSplit split, Booking booking, CancellationToken ct)
     {
@@ -51,20 +53,63 @@ public class SplitBillService(StayHostDbContext db, ILogger<SplitBillService> lo
     }
 
     /// <summary>
+    /// One share's money arrived, by whichever road. False when the share is no
+    /// longer waiting for it — already paid, or the split closed while the payer
+    /// was on the gateway's page — which tells a gateway caller to send it back.
+    /// </summary>
+    public async Task<bool> SharePaidAsync(
+        int shareId, decimal amount, CancellationToken ct, string? name = null, string? cardLast4 = null)
+    {
+        var share = await db.BillShares
+            .Include(s => s.Split!).ThenInclude(x => x.Shares)
+            .FirstOrDefaultAsync(s => s.Id == shareId, ct);
+        if (share?.Split is not { } split) return false;
+
+        if (!BillSplitRules.IsOpen(split.Status) || share.Status != BillShareStatus.Waiting
+            || amount != share.Amount)
+            return false;
+
+        var booking = await db.Bookings
+            .Include(b => b.Payment).Include(b => b.Events).Include(b => b.Listing)
+            .FirstAsync(b => b.Id == split.BookingId, ct);
+
+        var now = DateTime.UtcNow;
+        share.Status = BillShareStatus.Paid;
+        share.PaidAt = now;
+        if (!string.IsNullOrWhiteSpace(cardLast4)) share.CardLast4 = cardLast4;
+        if (!string.IsNullOrWhiteSpace(name)) share.Name = name.Trim();
+
+        db.LedgerEntries.AddRange(Ledger.HoldShare(booking.Id, booking.Reference, share.Amount, now));
+        await db.SaveChangesAsync(ct);
+
+        // The last share turns the whole thing into an ordinary paid booking.
+        if (split.Shares.All(s => s.Status == BillShareStatus.Paid))
+            await CompleteAsync(split, booking, ct);
+
+        return true;
+    }
+
+    /// <summary>
     /// Everyone paid. The money held in escrow becomes the booking's, and from
     /// here on it is an ordinary confirmed booking with an ordinary receipt.
     /// </summary>
-    public async Task CompleteAsync(
-        BillSplit split, Booking booking, CatalogService catalog, NotificationService notifications,
-        CancellationToken ct)
+    public async Task CompleteAsync(BillSplit split, Booking booking, CancellationToken ct)
     {
-        var party = new PartySize(booking.Adults, booking.Children, booking.Infants, booking.Pets);
-        var request = await catalog.BuildQuoteRequestAsync(
-            booking.ListingId, booking.CheckIn, booking.CheckOut, party, ct, booking.Id);
-        var price = Pricing.Quote(request!);
+        // The price the organiser agreed to, coupon and balance included. A fresh
+        // quote without them was larger than what the shares added up to, and the
+        // difference went on the books as money the guest still owed — while the
+        // balance they had put in was never taken from their wallet at all, and
+        // came back to them in full when the stay was cancelled.
+        var price = await completion.QuoteFromRecordAsync(booking, ct)
+                    ?? throw new InvalidOperationException($"Không dựng lại được giá đơn {booking.Reference}.");
 
-        db.LedgerEntries.AddRange(Ledger.ReleaseEscrow(booking, split.Total, DateTime.UtcNow));
-        db.LedgerEntries.AddRange(Ledger.CaptureBooking(booking, price, DateTime.UtcNow, split.Total));
+        var now = DateTime.UtcNow;
+        db.LedgerEntries.AddRange(Ledger.ReleaseEscrow(booking, split.Total, now));
+        db.LedgerEntries.AddRange(Ledger.CaptureBooking(booking, price, now, split.Total, booking.CreditUsed));
+
+        if (booking.CreditUsed > 0 && booking.GuestUserId is { } spender)
+            wallet.Add(spender, -booking.CreditUsed, CreditReason.Spent,
+                $"Dùng cho đơn {booking.Reference}", booking.Id);
 
         db.BookingEvents.Add(BookingLifecycle.Transition(
             booking, BookingStatus.Confirmed, $"guest:{split.OrganiserUserId}",
@@ -77,12 +122,12 @@ public class SplitBillService(StayHostDbContext db, ILogger<SplitBillService> lo
         if (booking.Payment is not null)
         {
             booking.Payment.Status = PaymentStatus.Captured;
-            booking.Payment.CapturedAt = DateTime.UtcNow;
+            booking.Payment.CapturedAt = now;
             booking.Payment.Method = "split";
         }
 
         split.Status = BillSplitStatus.Complete;
-        split.CompletedAt = DateTime.UtcNow;
+        split.CompletedAt = now;
 
         await db.SaveChangesAsync(ct);
 
@@ -112,9 +157,10 @@ public class SplitBillService(StayHostDbContext db, ILogger<SplitBillService> lo
         var paidEmails = split.Shares
             .Where(s => s.Status == BillShareStatus.Paid && s.Email != null)
             .Select(s => s.Email!.ToLower()).ToList();
-        var languages = await db.Users
+        var payers = await db.Users
             .Where(u => paidEmails.Contains(u.Email))
-            .ToDictionaryAsync(u => u.Email, u => u.Language, ct);
+            .Select(u => new { u.Id, u.Email, u.Language })
+            .ToListAsync(ct);
 
         foreach (var share in split.Shares.Where(s => s.Status == BillShareStatus.Paid))
         {
@@ -122,19 +168,45 @@ public class SplitBillService(StayHostDbContext db, ILogger<SplitBillService> lo
                 Ledger.ReturnShare(booking.Id, booking.Reference, share.Amount, DateTime.UtcNow));
             share.Status = BillShareStatus.Returned;
 
-            var lang = share.Email != null && languages.TryGetValue(share.Email.ToLower(), out var l)
-                ? l : null;
+            var payer = share.Email is null
+                ? null
+                : payers.FirstOrDefault(p => string.Equals(p.Email, share.Email, StringComparison.OrdinalIgnoreCase));
+
+            // docs/07 §10 — back to the card it came from. The email below used to
+            // say so with no call to any gateway behind it.
+            var shareId = share.Id;
+            var sent = await refunds.SendForAsync(
+                s => s.BillShareId == shareId, share.Amount, booking.Reference,
+                "card", share.CardLast4, "system", ct);
+
+            var body = $"{reason}\nSố tiền {share.Amount:#,##0}₫ đã được hoàn về phương thức bạn đã dùng.";
+            if (sent.Bounced > 0)
+            {
+                if (payer is not null)
+                {
+                    db.CreditEntries.Add(CreditLedger.Grant(
+                        payer.Id, sent.Bounced, CreditReason.Returned,
+                        $"Hoàn phần chia đơn {booking.Reference} — thẻ không nhận được", DateTime.UtcNow));
+                    body = $"{reason}\n{Refunds.RedirectNotice(sent.Bounced)}";
+                }
+                else
+                {
+                    // A stranger with no account has no balance to hold it. Said
+                    // loudly: this is money support has to send by hand.
+                    log.LogError("Không hoàn được {Amount} cho phần chia {ShareId} của đơn {Reference}; người trả không có tài khoản.",
+                        sent.Bounced, share.Id, booking.Reference);
+                }
+            }
+
             var name = share.Name ?? share.Email;
             db.EmailMessages.Add(new EmailMessage
             {
                 ToEmail = share.Email,
                 ToName = name,
                 Subject = $"Đã hoàn lại phần của bạn — đơn {booking.Reference}",
-                Body = Emails.Compose(lang, name ?? "",
-                    $"Đã hoàn lại phần của bạn cho đơn {booking.Reference}.",
-                    $"{reason}\nSố tiền {share.Amount:#,##0}₫ đã được hoàn về phương thức bạn đã dùng.",
-                    null),
-                Language = lang
+                Body = Emails.Compose(payer?.Language, name ?? "",
+                    $"Đã hoàn lại phần của bạn cho đơn {booking.Reference}.", body, null),
+                Language = payer?.Language
             });
         }
 

@@ -623,10 +623,26 @@ public class ShieldService(
         return claims.Select(c => ToDto(c, null)).ToList();
     }
 
-    public async Task<ShieldClaimDto?> OneAsync(int id, int? viewerId, CancellationToken ct)
+    /// <summary>
+    /// One case, for somebody who is part of it — the same three parties
+    /// <see cref="MineAsync"/> lists — or for an admin. It used to answer any
+    /// signed-in user for any id, so counting upwards read every case's story,
+    /// evidence photos and a third party's contact details.
+    /// </summary>
+    public async Task<ShieldClaimDto?> OneAsync(int id, User viewer, CancellationToken ct)
     {
         var claim = await Detailed().FirstOrDefaultAsync(c => c.Id == id, ct);
-        return claim is null ? null : ToDto(claim, viewerId);
+        if (claim is null) return null;
+
+        if (viewer.Role != UserRole.Admin
+            && claim.OpenedByUserId != viewer.Id
+            && claim.Booking?.GuestUserId != viewer.Id)
+        {
+            var hostProfile = await db.Hosts.FirstOrDefaultAsync(h => h.UserId == viewer.Id, ct);
+            if (hostProfile is null || claim.Booking?.Listing?.HostId != hostProfile.Id) return null;
+        }
+
+        return ToDto(claim, viewer.Id);
     }
 
     private IQueryable<ShieldClaim> Detailed() =>

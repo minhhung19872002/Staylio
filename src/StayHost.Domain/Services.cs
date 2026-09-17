@@ -342,8 +342,11 @@ public static class ServiceRules
     /// <summary>Kept for the older call sites that ask "is this still free?".</summary>
     public static readonly TimeSpan FreeCancellation = TimeSpan.FromHours(72);
 
-    /// <summary>Nothing may be booked closer than this to now.</summary>
-    public static readonly TimeSpan MinimumNotice = TimeSpan.FromHours(4);
+    /// <summary>
+    /// docs/09 §7 DV-B — "Đóng đặt dịch vụ trước 24 giờ", settled by the
+    /// customer. This read four hours, so a chef could be booked for tonight.
+    /// </summary>
+    public static readonly TimeSpan MinimumNotice = TimeSpan.FromHours(24);
 
     public enum Refusal
     {

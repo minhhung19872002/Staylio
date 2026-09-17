@@ -27,7 +27,13 @@ public static class Badges
         int Stays,
         int Nights,
         double ResponseRate,
-        double CancelRate);
+        double CancelRate,
+        /// <summary>
+        /// docs/03 §4 — "Mất tư cách Chủ nhà Ưu tú trong 1 năm". One confirmed
+        /// stay the host walked away from inside the year is enough, whatever
+        /// the rate works out to on a large book.
+        /// </summary>
+        int HostCancels = 0);
 
     public readonly record struct Criterion(string Key, string Label, string Current, string Target, bool Met);
 
@@ -56,7 +62,7 @@ public static class Badges
 
             new("cancellations", $"Tỉ lệ tự huỷ < {SuperhostCancelRate:0}%",
                 $"{s.CancelRate:0.##}%", $"{SuperhostCancelRate:0}%",
-                s.CancelRate < SuperhostCancelRate)
+                s.CancelRate < SuperhostCancelRate && s.HostCancels == 0)
         ];
     }
 

@@ -231,6 +231,20 @@ payout_rows_after = int(sql('''select count(*) from ledger_entries where "Transa
 check("Chưa có bút toán trả chủ nhà nào", payout_rows_after == payout_rows_before,
       "%d → %d" % (payout_rows_before, payout_rows_after))
 
+# The sweep used to pick a Sent row up again once its one-day retry step had
+# passed, and put it in a second file — two transfers for one stay once both
+# were executed. The retry date is wound back so the next tick would do exactly
+# that, and the booking must still belong to the first file only.
+batches_before = int(sql('select count(*) from payout_batches where "HostId"=%d' % host_id) or 0)
+sql('update payments set "PayoutLastAttemptOn" = current_date - 3 where "BookingId" = %d' % booking["id"])
+print("     (chờ thêm một vòng quét…)")
+time.sleep(70)
+ref_again = sql('select coalesce("PayoutReference", \'\') from payments where "BookingId"=%d' % booking["id"])
+batches_after = int(sql('select count(*) from payout_batches where "HostId"=%d' % host_id) or 0)
+check("Đơn đã lên lệnh không bị đưa vào lệnh thứ hai",
+      ref_again == batch_ref and batches_after == batches_before,
+      "mã %s → %s, số lệnh %d → %d" % (batch_ref, ref_again, batches_before, batches_after))
+
 # --- 3: the file a bank will act on -------------------------------------------
 print("\n3. File chuyển tiền hàng loạt")
 

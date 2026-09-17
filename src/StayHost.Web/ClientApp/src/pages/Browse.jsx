@@ -175,8 +175,8 @@ function Rail({ section }) {
         </button>
         {section.subtitle && <p className="rail-sub">{t(section.subtitle)}</p>}
         <div className="rail-nav">
-          <button className="round-btn" onClick={() => scroll(-1)} aria-label="Cuộn trái"><Icon name="chevronLeft" size={14} /></button>
-          <button className="round-btn" onClick={() => scroll(1)} aria-label="Cuộn phải"><Icon name="chevronRight" size={14} /></button>
+          <button className="round-btn" onClick={() => scroll(-1)} aria-label={t('Cuộn trái')}><Icon name="chevronLeft" size={14} /></button>
+          <button className="round-btn" onClick={() => scroll(1)} aria-label={t('Cuộn phải')}><Icon name="chevronRight" size={14} /></button>
         </div>
       </div>
       <div className="rail-track" data-rail-track={section.key}>
@@ -241,7 +241,7 @@ function Results() {
       {title} · {dateRangeLabel(state.checkIn, state.checkOut)}
       {results.dates && (
         <span className="flex-note">
-          {' '}· {results.dates.label}, {results.dates.nights} đêm — đã xét {results.dates.options} khoảng ngày
+          {' '}· {t(results.dates.label)}, {results.dates.nights} {t('đêm')} — {t('đã xét {} khoảng ngày').replace('{}', results.dates.options)}
         </span>
       )}
     </p>
@@ -302,8 +302,8 @@ function Pagination({ results }) {
   }
 
   return (
-    <nav className="pagination" aria-label="Phân trang">
-      <button className="page-btn nav" disabled={current === 1} aria-label="Trang trước"
+    <nav className="pagination" aria-label={t('Phân trang')}>
+      <button className="page-btn nav" disabled={current === 1} aria-label={t('Trang trước')}
               onClick={() => go(current - 1)}><Icon name="chevronLeft" size={14} /></button>
       {items}
       <button className="page-btn nav" disabled={current === pages} aria-label="Trang sau"

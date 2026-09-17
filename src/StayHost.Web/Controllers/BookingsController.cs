@@ -179,7 +179,7 @@ public class BookingsController(
         {
             var dry = Pricing.Quote(quoteRequest!);
             creditUsed = CreditRules.Spendable(
-                await wallet.BalanceAsync(user.Id, ct), dry.RoomBeforeDiscount - dry.RoomDiscount);
+                await wallet.SpendableAsync(user.Id, null, ct), dry.RoomBeforeDiscount - dry.RoomDiscount);
 
             if (creditUsed > 0)
                 quoteRequest = quoteRequest! with
@@ -355,6 +355,18 @@ public class BookingsController(
                 : instantFallbackNote is null ? "Gửi yêu cầu đặt"
                 : "Chuyển thành yêu cầu đặt do chưa đủ điều kiện Đặt ngay của chủ nhà"));
         await db.SaveChangesAsync(ct);
+
+        // docs/01 TC-09 — a limited code taken by a request that arrived at the
+        // same moment. The later booking lets its dates go at once.
+        if (couponId is { } usedCoupon && price.Coupon > 0
+            && !await coupons.WithinLimitsAsync(usedCoupon, booking.Id, ct))
+        {
+            await coupons.ReleaseAsync(booking.Id, ct);
+            db.BookingEvents.Add(BookingLifecycle.Transition(
+                booking, BookingStatus.CancelledByGuest, "system", "Mã giảm giá vừa hết lượt dùng."));
+            await db.SaveChangesAsync(ct);
+            return Conflict(new { message = "Mã giảm giá này vừa hết lượt dùng. Vui lòng đặt lại không kèm mã." });
+        }
 
         // An instant booking is still unpaid at this point, so nobody is told
         // about it until the money is actually taken. A booking that fell back to
@@ -554,6 +566,17 @@ public class BookingsController(
 
         var price = Pricing.Quote(fresh!);
 
+        // The balance this booking promised must still be there: it may have been
+        // spent on another stay since the hold, and it is only taken at confirm.
+        if (booking.CreditUsed > 0 && booking.GuestUserId is { } spender
+            && await wallet.SpendableAsync(spender, booking.Id, ct) < booking.CreditUsed)
+        {
+            return Conflict(new
+            {
+                message = "Số dư Staylio của bạn không còn đủ cho đơn này. Vui lòng đặt lại để tính giá mới."
+            });
+        }
+
         if (price.Total != booking.Total)
         {
             return Conflict(new
@@ -571,7 +594,15 @@ public class BookingsController(
         var partial = req?.PayDeposit == true && PartialPayment.IsAvailable(booking.CheckIn, today);
         var charged = partial ? PartialPayment.Deposit(price.Total, req?.DepositAmount) : price.Total;
 
-        var method = req?.PaymentMethod ?? "card";
+        var method = (req?.PaymentMethod ?? "card").Trim().ToLowerInvariant();
+
+        // docs/07 §2 — only a row of the catalogue is a way to pay. Anything else
+        // used to fall through to the stand-in, which confirmed it.
+        if (!PaymentMethods.IsAccepted(method) || method == "balance")
+            return BadRequest(new
+            {
+                message = Payments.Message(DeclineReason.MethodUnavailable), needsDifferentMethod = true
+            });
 
         /*
          * docs/07 §2.5 — the guest pays the host at the door, so there is nothing
@@ -718,6 +749,14 @@ public class BookingsController(
             });
         }
 
+        // Past this line the money would be taken in place by the stand-in. That is
+        // right for a demo build and wrong everywhere else — see PspRouter.StandInMay.
+        if (charged > 0 && !psp.StandInMay(method))
+            return BadRequest(new
+            {
+                message = Payments.Message(DeclineReason.MethodUnavailable), needsDifferentMethod = true
+            });
+
         // docs/07 §5 — cards that need the bank's OTP go there first. The row is
         // created before the idempotency claim so a guest coming back with their
         // code resumes this attempt rather than being told it already happened.
@@ -797,7 +836,8 @@ public class BookingsController(
     /// came round or because the guest chose to settle up early.
     /// </summary>
     [HttpPost("{id:int}/balance")]
-    public async Task<ActionResult<BookingDto>> PayBalance(int id, CancellationToken ct)
+    public async Task<ActionResult<BookingDto>> PayBalance(
+        int id, [FromServices] BalanceCollector balances, CancellationToken ct)
     {
         var user = await auth.CurrentUserAsync(ct);
         if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
@@ -811,7 +851,29 @@ public class BookingsController(
         if (booking.BalanceDue <= 0 || booking.BalanceStatus is BalanceStatus.None or BalanceStatus.Paid)
             return BadRequest(new { message = "Đơn này không còn khoản nào phải trả." });
 
-        var attempt = gateway.Charge(booking.BalanceDue, booking.Payment?.Method ?? "card", booking.Payment?.CardLast4);
+        if (booking.Status is not (BookingStatus.Confirmed or BookingStatus.InProgress))
+            return BadRequest(new { message = "Đơn này không còn hiệu lực." });
+
+        // docs/07 §13 — the rest goes the way the deposit went: out to the gateway.
+        var method = booking.Payment?.Method ?? "card";
+        if (psp.IsLive(method))
+        {
+            var started = await pspCheckout.StartForAsync(
+                new PaymentSession
+                {
+                    BookingId = booking.Id, IsBalance = true, Method = method, Amount = booking.BalanceDue,
+                    AttemptKey = $"balance-{booking.Id}-{booking.BalanceDue:0}"
+                },
+                booking.Id, $"Staylio {booking.Reference}", user.Id,
+                Psp.ClientIp(HttpContext.Connection.RemoteIpAddress?.ToString()), ct);
+
+            if (!started.Ok || started.PayUrl is null)
+                return BadRequest(new { message = started.Error, retryable = true });
+
+            return Ok(ToDto(booking) with { GatewayRedirectUrl = started.PayUrl, GatewayOrderRef = started.OrderRef });
+        }
+
+        var attempt = gateway.Charge(booking.BalanceDue, method, booking.Payment?.CardLast4);
         booking.BalanceAttempts++;
         booking.BalanceLastAttemptAt = DateTime.UtcNow;
 
@@ -823,14 +885,8 @@ public class BookingsController(
             return BadRequest(new { message = attempt.Reason });
         }
 
-        db.LedgerEntries.AddRange(Ledger.CollectBalance(booking, booking.BalanceDue, DateTime.UtcNow));
-        db.BookingEvents.Add(BookingLifecycle.Note(
-            booking, $"guest:{user.Id}", $"Đã thu nốt {booking.BalanceDue:#,##0}₫."));
-
-        booking.DepositPaid += booking.BalanceDue;
-        booking.BalanceDue = 0;
-        booking.BalanceStatus = BalanceStatus.Paid;
-        booking.BalanceFirstFailedAt = null;
+        await balances.ApplyAsync(
+            booking, $"guest:{user.Id}", $"Đã thu nốt {booking.BalanceDue:#,##0}₫.", DateTime.UtcNow, ct);
 
         await db.SaveChangesAsync(ct);
         return Ok(ToDto(booking));
@@ -1155,14 +1211,25 @@ public class BookingsController(
     /// Cancels the booking and books the matching double-entry transaction, so
     /// the ledger still balances afterwards (docs/00 §6.1).
     /// </summary>
-    /// <param name="cardRefundAccepted">
-    /// docs/07 §10 — whether the bank took the money back onto the card. Callers
-    /// that have asked the gateway pass its answer; the rest keep the ordinary
-    /// case, so nothing that never had a card to bounce changes behaviour.
+    /// <summary>
+    /// The part of a refund that is money going back, as opposed to balance or a
+    /// receivable being written off. Nothing for a stay paid at the door
+    /// (docs/07 §2.5); never more than the guest handed over.
+    /// </summary>
+    internal static decimal CashBackOf(Booking booking, decimal refund)
+    {
+        if (booking.PaidAtProperty) return 0m;
+        var paid = booking.BalanceStatus == BalanceStatus.None ? booking.Total : booking.DepositPaid;
+        return Math.Max(0m, Math.Min(refund, paid));
+    }
+
+    /// <param name="sent">
+    /// docs/07 §10 — what the gateway took back onto the card. Whatever it would
+    /// not take becomes balance. Null for callers with no card to bounce.
     /// </param>
     internal static void PostCancellation(
         StayHostDbContext db, Booking booking, Cancellation.Outcome outcome, CancelledBy by, string reason,
-        bool cardRefundAccepted = true)
+        RefundGateway.Sent? sent = null)
     {
         // A cancellation the platform made is not the guest's. Recording it as
         // theirs put five bookings a guest never touched on their record and,
@@ -1212,8 +1279,7 @@ public class BookingsController(
         // docs/01 ĐP-06 — a guest who only paid a deposit cannot be sent back
         // more than they handed over. What they are owed is set against what
         // they still owe first, and only the cash difference actually moves.
-        var paid = booking.BalanceStatus == BalanceStatus.None ? booking.Total : booking.DepositPaid;
-        var cashBack = Math.Min(outcome.Amount, paid);
+        var cashBack = CashBackOf(booking, outcome.Amount);
         var netted = Math.Min(outcome.Amount - cashBack, booking.BalanceDue);
 
         /*
@@ -1226,8 +1292,10 @@ public class BookingsController(
          * back. The bank is asked first either way; only its refusal moves the
          * money, and the guest is told rather than left to find it.
          */
-        var cash = Refunds.Split.Of(cashBack);
-        if (!cardRefundAccepted) cash = Refunds.Redirect(cash);
+        // Only the part the card would not take moves. Redirecting the whole
+        // amount when one of two visits bounced paid that guest twice.
+        var bouncedCash = Math.Min(cashBack, sent?.Bounced ?? 0m);
+        var cash = new Refunds.Split(cashBack - bouncedCash, bouncedCash, 0m);
 
         if (cash.ToCard > 0)
             db.LedgerEntries.AddRange(Ledger.SettleRefund(booking, cash.ToCard, DateTime.UtcNow));
@@ -1258,8 +1326,11 @@ public class BookingsController(
             // docs/01 TC-07 stamps a lifetime on a grant at the moment it is made,
             // and the row this used to build by hand quietly skipped that — so
             // returned balance never lapsed, whatever docs/07 §16 said.
+            // creditBack, not CreditUsed: the ledger line above returns only what
+            // the policy allows, and granting the whole balance back put the
+            // wallet ahead of the books on every non-refundable stay.
             db.CreditEntries.Add(CreditLedger.Grant(
-                creditOwner, booking.CreditUsed, CreditReason.Returned,
+                creditOwner, creditBack, CreditReason.Returned,
                 $"Hoàn số dư đơn {booking.Reference}", DateTime.UtcNow, booking.Id));
             booking.CreditUsed = 0;
         }
@@ -1306,10 +1377,10 @@ public class BookingsController(
             _ => "guest"
         };
 
-        var accepted = await refunds.SendAsync(
+        var sent = await refunds.SendAsync(
             booking, outcome.Amount, who, $"Huy don {booking.Reference}", ct);
 
-        PostCancellation(db, booking, outcome, by, reason, accepted);
+        PostCancellation(db, booking, outcome, by, reason, sent);
         // docs/01 TC-09 — a cancelled stay hands its promo code back to the
         // campaign so a limited run is not spent on a booking that did not happen.
         await coupons.ReleaseAsync(booking.Id, ct);
@@ -1320,12 +1391,12 @@ public class BookingsController(
         // Loaded here rather than trusted from the entity: the cancel endpoint's
         // query does not Include the guest, so reading booking.GuestUser would
         // find null and this notice would quietly never be sent.
-        if (!accepted && outcome.Amount > 0 && booking.GuestUserId is { } guestId)
+        if (sent.Bounced > 0 && booking.GuestUserId is { } guestId)
             await notifications.QueueWithEmailAsync(
                 await db.Users.FirstOrDefaultAsync(u => u.Id == guestId, ct),
                 NotificationKind.RefundIssued,
                 "Tiền hoàn đã vào số dư Staylio",
-                Refunds.RedirectNotice(outcome.Amount), $"/trips/{booking.Id}", ct);
+                Refunds.RedirectNotice(sent.Bounced), $"/trips/{booking.Id}", ct);
     }
 
     /// <summary>A guest may review a stay once, after checkout.</summary>
@@ -1729,7 +1800,7 @@ public class BookingsController(
         }
 
         return await query.FirstOrDefaultAsync(b =>
-            b.Id == id && (user != null ? b.GuestUserId == user.Id : b.SessionId == sid), ct);
+            b.Id == id && (user != null ? b.GuestUserId == user.Id : b.SessionId == sid && b.GuestUserId == null), ct);
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions LineJson = new(System.Text.Json.JsonSerializerDefaults.Web);
@@ -1808,7 +1879,10 @@ public class BookingsController(
             CanPriceMatch: b.Listing?.IsHotel == true
                            && HotelRules.WithinWindow(b.CreatedAt, DateTime.UtcNow),
             PaidAtProperty: b.PaidAtProperty,
-            CashCollectedAt: b.CashCollectedAt);
+            CashCollectedAt: b.CashCollectedAt)
+        {
+            Adults = b.Adults, Children = b.Children, Infants = b.Infants, Pets = b.Pets
+        };
     }
 
     /// <summary>

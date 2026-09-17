@@ -47,12 +47,17 @@ public static class ListingModeration
         isPublished && status == ListingReviewStatus.Approved;
 
     /// <summary>
-    /// The status a freshly created listing takes. Only a listing being published
-    /// under an active gate needs review; a draft, or a listing created while the
-    /// gate is off, is approved outright.
+    /// The status a freshly created listing takes. Under an active gate every new
+    /// place is unreviewed, draft or not; only with the gate off is it approved
+    /// outright.
+    ///
+    /// A draft used to be approved on creation, and since an approved place stays
+    /// approved when it is saved (<see cref="StatusOnSave"/>), saving the draft
+    /// again with "publish" on put it in front of the public without an admin
+    /// ever seeing it. The admin queue shows only published ones.
     /// </summary>
     public static ListingReviewStatus StatusForNew(bool isPublished, bool requireApproval) =>
-        isPublished && requireApproval ? ListingReviewStatus.Pending : ListingReviewStatus.Approved;
+        requireApproval ? ListingReviewStatus.Pending : ListingReviewStatus.Approved;
 
     /// <summary>
     /// Where an existing listing lands when its host saves it. An approved place

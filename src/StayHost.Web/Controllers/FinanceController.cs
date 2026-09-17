@@ -145,6 +145,17 @@ public class FinanceController(
             .Select(a => new Reconciliation.Record(a.Key, a.Amount))
             .ToListAsync(ct);
 
+        // Gateway visits with no attempt row are money the platform took too: a
+        // gift card, a ticket, a service, a split share, the rest of a deposit.
+        // Leaving them out showed every one of them as money the gateway had and
+        // the platform did not.
+        var known = ours.Select(r => r.Reference).ToHashSet();
+        var visits = await db.PaymentSessions
+            .Where(s => s.Status == PaymentSessionStatus.Paid && s.CompletedAt >= fromUtc && s.CompletedAt < toUtc)
+            .Select(s => new Reconciliation.Record(s.AttemptKey, s.Amount))
+            .ToListAsync(ct);
+        ours.AddRange(visits.Where(v => known.Add(v.Reference)));
+
         // docs/07 §7 — their list, from them. This used to read the same table
         // the line above reads, so the report compared one of our records against
         // another of our records and balanced every day by construction.
@@ -236,7 +247,11 @@ public class FinanceController(
             ? booking.DepositPaid
             : booking.Payment.Status == PaymentStatus.Captured ? booking.Payment.Amount : 0m;
 
-        var left = taken - booking.RefundedAmount;
+        // Balance is taken off the price before the card is charged (docs/07 §3),
+        // so DepositPaid is already the money alone and the balance sits beside it.
+        // Subtracting it again made a stay paid half in balance refundable in
+        // money only up to the difference.
+        var left = taken + booking.CreditUsed - booking.RefundedAmount;
         if (req.Amount <= 0 || req.Amount > left)
             return BadRequest(new { message = $"Số tiền hoàn phải trong khoảng 1₫ – {left:#,##0}₫." });
 
@@ -281,16 +296,37 @@ public class FinanceController(
 
         // docs/07 §10 — back the way it came, card before balance.
         var split = Refunds.Allocate(
-            new Refunds.Sources(taken - booking.CreditUsed, booking.CreditUsed),
+            new Refunds.Sources(taken, booking.CreditUsed),
             req.Amount, booking.RefundedAmount);
+
+        // The card part goes through the gateway that took it. This used to write
+        // "refund settled" to the books with no call to anybody, so the guest was
+        // told money was coming that no bank had been asked to send.
+        var sent = await refunds.SendForAsync(
+            s => s.BookingId == booking.Id, split.ToCard, booking.Reference,
+            booking.Payment.Method, booking.Payment.CardLast4, $"admin:{admin.Id}", ct);
+        var toCard = Math.Min(split.ToCard, sent.ToCard);
+        var asBalance = split.ToCredit + (split.ToCard - toCard);
 
         // Owed first, then paid — otherwise the refund account goes negative and
         // the report reads as if the platform were owed money by its own guests.
         db.LedgerEntries.AddRange(Ledger.ManualRefund(booking, req.Amount, DateTime.UtcNow));
-        db.LedgerEntries.AddRange(Ledger.SettleRefund(booking, split.ToCard, DateTime.UtcNow));
+        if (toCard > 0)
+            db.LedgerEntries.AddRange(Ledger.SettleRefund(booking, toCard, DateTime.UtcNow));
 
-        if (split.ToCredit > 0)
-            db.LedgerEntries.AddRange(Ledger.SettleRefundAsCredit(booking, split.ToCredit, DateTime.UtcNow));
+        if (asBalance > 0)
+        {
+            db.LedgerEntries.AddRange(Ledger.SettleRefundAsCredit(booking, asBalance, DateTime.UtcNow));
+
+            // The books alone are not balance: the wallet reads CreditEntries, and
+            // without this row the guest was told of balance they could not spend.
+            if (booking.GuestUserId is { } owner)
+                db.CreditEntries.Add(CreditLedger.Grant(
+                    owner, asBalance, CreditReason.Returned,
+                    $"Hoàn tiền đơn {booking.Reference}", DateTime.UtcNow, booking.Id));
+        }
+
+        split = new Refunds.Split(toCard, asBalance, split.Unrefundable);
 
         booking.RefundedAmount += req.Amount;
 
@@ -335,6 +371,11 @@ public class FinanceController(
             .Include(b => b.Listing!).ThenInclude(l => l.Host)
             .FirstOrDefaultAsync(b => b.Id == id, ct);
         if (booking is null) return NotFound();
+
+        // The fund pays the host Q-A here, so a finance admin who hosts this
+        // stay — or stayed in it — must not be the one to call it.
+        if (await gate.PartyConflictAsync(admin, booking.GuestUserId, booking.Listing?.Host?.UserId, ct) is { } refusal)
+            return StatusCode(403, new { message = refusal });
 
         // Force majeure lands on the host's side of the ledger (docs/03 §4), so
         // it has to be a legal move to CancelledByHost — the same gate the host's

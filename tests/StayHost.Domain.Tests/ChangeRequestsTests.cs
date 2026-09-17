@@ -68,8 +68,9 @@ public class ChangeRequestsTests
     {
         var entries = Ledger.AdjustBooking(OldBooking(), NewPrice(1.5m), DateTime.UtcNow);
         Assert.Equal(0m, Ledger.Imbalance(entries));
-        // The guest pays the extra as cash in.
-        Assert.Contains(entries, e => e.Account == LedgerAccount.GuestFunds && e.Direction == LedgerDirection.Debit);
+        // The extra is owed, not yet paid: it is collected later like a balance.
+        Assert.Contains(entries, e => e.Account == LedgerAccount.GuestReceivable && e.Direction == LedgerDirection.Debit);
+        Assert.DoesNotContain(entries, e => e.Account == LedgerAccount.GuestFunds);
     }
 
     [Fact]

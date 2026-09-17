@@ -142,7 +142,7 @@ public class AccountDataController(StayHostDbContext db, AuthService auth) : Con
         var export = new
         {
             ExportedAt = DateTime.UtcNow,
-            Notice = "Bản sao dữ liệu cá nhân của bạn trên Staylio (docs/01 TK-11).",
+            Notice = "Bản sao dữ liệu cá nhân của bạn trên Staylio.",
             Account = new
             {
                 user.Id, user.Email, user.Phone, user.FullName, user.DisplayName,

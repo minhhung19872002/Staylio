@@ -9,7 +9,7 @@ namespace StayHost.Web.Services;
 /// until both have written one, or the 14-day window closes. This is the only
 /// place that decides when a review becomes visible.
 /// </summary>
-public class ReviewService(StayHostDbContext db)
+public class ReviewService(StayHostDbContext db, NotificationService notifications)
 {
     /// <summary>How long after check-out a review can still be written.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromDays(14);
@@ -50,6 +50,26 @@ public class ReviewService(StayHostDbContext db)
         if (changed && guestReview is not null && booking.Listing is not null)
             await RecomputeRatingAsync(booking.ListingId, ct);
 
+        // docs/03 §11 — "Đánh giá được công khai": both sides are told. Nobody
+        // was, so a review appeared on a listing without either party knowing.
+        if (changed)
+        {
+            var guest = booking.GuestUserId is { } gid
+                ? await db.Users.FirstOrDefaultAsync(u => u.Id == gid, ct)
+                : null;
+            var host = await db.Users.FirstOrDefaultAsync(u => u.HostProfile!.Id == booking.Listing!.HostId, ct);
+            var title = booking.Listing?.Title ?? "";
+
+            await notifications.QueueWithEmailAsync(guest, NotificationKind.ReviewReceived,
+                "Đánh giá đã được công khai",
+                $"Đánh giá cho chuyến đi tại \"{title}\" (mã {booking.Reference}) đã hiện với mọi người.",
+                $"/trips/{booking.Id}", ct);
+            await notifications.QueueWithEmailAsync(host, NotificationKind.ReviewReceived,
+                "Đánh giá đã được công khai",
+                $"Đánh giá của đơn {booking.Reference} tại \"{title}\" đã hiện với mọi người.",
+                "/hosting?tab=reviews", ct);
+        }
+
         return changed;
     }
 
@@ -70,8 +90,10 @@ public class ReviewService(StayHostDbContext db)
         listing.Rating = ratings.Count == 0 ? 0 : Math.Round(ratings.Average(), 2);
         listing.ReviewCount = ratings.Count;
 
-        // docs/03 §8 — "Khách chọn" needs a high score over a real sample.
-        listing.IsGuestFavorite = ratings.Count >= 5 && listing.Rating >= 4.9;
+        // docs/03 §8 — "Khách chọn" is decided by the weekly review in
+        // BadgeService, which also weighs cancellations and confirmed reports.
+        // Setting it here from the score alone handed the title straight back to
+        // a listing that review had just taken it from.
     }
 
     /// <summary>
@@ -83,8 +105,12 @@ public class ReviewService(StayHostDbContext db)
         var now = DateTime.UtcNow;
         var result = new SweepResult();
 
+        // Only stays whose window is open or just closed; the whole history was
+        // read every minute.
+        var horizon = DateOnly.FromDateTime(now).AddDays(-30);
+
         var completed = await db.Bookings
-            .Where(b => b.Status == BookingStatus.Completed)
+            .Where(b => b.Status == BookingStatus.Completed && b.CheckOut >= horizon)
             .Include(b => b.Listing)
             .Include(b => b.GuestUser)
             .ToListAsync(ct);
@@ -102,23 +128,37 @@ public class ReviewService(StayHostDbContext db)
             // Day 1, 7 and 13 counted from check-out, one notification each.
             var daysIn = (now - booking.CheckOut.ToDateTime(TimeOnly.MinValue)).Days;
             if (!ReviewService.ReminderDays.Contains(daysIn)) continue;
-            if (booking.HasReview) continue;
-
-            var alreadySent = await db.Notifications.AnyAsync(n =>
-                n.UserId == booking.GuestUserId &&
-                n.Kind == NotificationKind.ReviewReceived &&
-                n.Link == $"/trips/{booking.Id}" &&
-                n.CreatedAt > now.AddHours(-20), ct);
-            if (alreadySent) continue;
 
             var left = Math.Max(1, (deadline - now).Days);
-            await notifications.QueueWithEmailAsync(booking.GuestUser, NotificationKind.ReviewReceived,
-                "Đánh giá chuyến đi của bạn",
-                $"Bạn còn {left} ngày để đánh giá \"{booking.Listing?.Title}\". " +
-                "Đánh giá của hai bên chỉ hiện khi cả hai đã gửi.",
-                $"/trips/{booking.Id}", ct);
 
-            result.Reminded++;
+            // Once per reminder day, marked in the link. The old check looked back
+            // twenty hours inside a twenty-four-hour day, so each day sent two.
+            var guestLink = $"/trips/{booking.Id}?danh-gia={daysIn}";
+            if (!booking.HasReview && booking.GuestUserId is { } guestId
+                && !await db.Notifications.AnyAsync(n => n.UserId == guestId && n.Link == guestLink, ct))
+            {
+                await notifications.QueueWithEmailAsync(booking.GuestUser, NotificationKind.ReviewReceived,
+                    "Đánh giá chuyến đi của bạn",
+                    $"Bạn còn {left} ngày để đánh giá \"{booking.Listing?.Title}\". " +
+                    "Đánh giá của hai bên chỉ hiện khi cả hai đã gửi.",
+                    guestLink, ct);
+                result.Reminded++;
+            }
+
+            // docs/03 §7, §11 — the host is invited too ("mời viết đánh giá").
+            var hostLink = $"/hosting?tab=reviews&don={booking.Id}&danh-gia={daysIn}";
+            var hostUser = await db.Users.FirstOrDefaultAsync(u => u.HostProfile!.Id == booking.Listing!.HostId, ct);
+            if (hostUser is not null && booking.GuestUserId is not null
+                && !await db.GuestReviews.AnyAsync(r => r.BookingId == booking.Id, ct)
+                && !await db.Notifications.AnyAsync(n => n.UserId == hostUser.Id && n.Link == hostLink, ct))
+            {
+                await notifications.QueueWithEmailAsync(hostUser, NotificationKind.ReviewReceived,
+                    "Đánh giá khách của bạn",
+                    $"Bạn còn {left} ngày để đánh giá {booking.GuestName} (đơn {booking.Reference}). " +
+                    "Đánh giá của hai bên chỉ hiện khi cả hai đã gửi.",
+                    hostLink, ct);
+                result.Reminded++;
+            }
         }
 
         if (result.Published + result.Reminded > 0) await db.SaveChangesAsync(ct);

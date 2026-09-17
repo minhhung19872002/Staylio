@@ -120,11 +120,18 @@ def window(offset):
 
 
 def book(op, lid, offset, **extra):
-    ci, co = window(offset)
-    body = {"listingId": lid, "checkIn": ci, "checkOut": co,
-            "adults": 2, "children": 0, "infants": 0, "pets": 0, "agreedToRules": True}
-    body.update(extra)
-    return call(op, "/api/bookings", body)
+    # The listing is shared with the other suites, which book it too; a week
+    # another suite already took is not what these scenarios are about, so the
+    # booking moves on a week rather than reporting a rule as broken.
+    for attempt in range(8):
+        ci, co = window(offset + 7 * attempt)
+        body = {"listingId": lid, "checkIn": ci, "checkOut": co,
+                "adults": 2, "children": 0, "infants": 0, "pets": 0, "agreedToRules": True}
+        body.update(extra)
+        st, res = call(op, "/api/bookings", body)
+        if not (st == 409 and isinstance(res, dict) and res.get("reason") in ("DatesTaken", "TurnoverTime")):
+            return st, res
+    return st, res
 
 
 def booked(name, st, res):

@@ -75,9 +75,18 @@ public class HostOperationsController(
         if (booking.CouponDiscount > 0) fresh = fresh with { CouponAmount = booking.CouponDiscount, CouponLabel = "Mã giảm giá" };
         if (booking.CreditUsed > 0) fresh = fresh with { PromotionAmount = booking.CreditUsed, PromotionLabel = "Số dư Staylio" };
         var price = Pricing.Quote(fresh);
+        var now = DateTime.UtcNow;
+        var diff = price.Total - booking.Total;
 
         // docs/01 CĐ-06 — the money already recognised shifts by the difference.
-        db.LedgerEntries.AddRange(Ledger.AdjustBooking(booking, price, DateTime.UtcNow));
+        // Only where money was recognised: a request still waiting on the host
+        // has nothing captured, and a stay paid at the door never passed through
+        // the platform (docs/07 §2.5).
+        var captured = booking.Status is BookingStatus.Confirmed or BookingStatus.InProgress
+                       && !booking.PaidAtProperty;
+
+        if (captured)
+            db.LedgerEntries.AddRange(Ledger.AdjustBooking(booking, price, now));
 
         // Move the booking onto the new stay.
         booking.CheckIn = change.NewCheckIn;
@@ -100,6 +109,66 @@ public class HostOperationsController(
         booking.Total = price.Total;
         booking.HostServiceFee = price.HostServiceFee;
         booking.HostPayout = price.HostPayout;
+
+        if (booking.Payment is not null)
+        {
+            booking.Payment.Amount = price.Total;
+            booking.Payment.HostPayout = price.HostPayout;
+            booking.Payment.PlatformFee = price.GuestServiceFee + price.HostServiceFee;
+        }
+
+        // The difference has to actually move. Accepting used to adjust the books
+        // and the host's payout and stop there: ten nights paid out for two paid
+        // for, and a smaller stay's refund recorded as owed and never sent.
+        if (captured && diff > 0)
+        {
+            // Collected like the rest of a part-paid stay: due today, reminded,
+            // and on the same 72-hour clock (BalanceCollector).
+            booking.BalanceDue += diff;
+            if (booking.BalanceStatus is BalanceStatus.None or BalanceStatus.Paid)
+            {
+                booking.BalanceStatus = BalanceStatus.Scheduled;
+                booking.BalanceFirstFailedAt = null;
+            }
+            booking.BalanceDueOn = DateOnly.FromDateTime(now);
+        }
+        else if (captured && diff < 0)
+        {
+            var owed = -diff;
+
+            // Set against what the guest still owes first; only the rest is cash.
+            var netted = Math.Min(owed, booking.BalanceDue);
+            if (netted > 0)
+            {
+                db.LedgerEntries.AddRange(Ledger.NetRefundAgainstReceivable(booking, netted, now));
+                booking.BalanceDue -= netted;
+                if (booking.BalanceDue == 0 && booking.BalanceStatus != BalanceStatus.None)
+                    booking.BalanceStatus = BalanceStatus.Paid;
+            }
+
+            var cash = owed - netted;
+            if (cash > 0)
+            {
+                var sent = await refunds.SendForAsync(
+                    s => s.BookingId == booking.Id, cash, booking.Reference,
+                    booking.Payment?.Method ?? "card", booking.Payment?.CardLast4, $"host:{user.Id}", ct);
+                var toCard = Math.Min(cash, sent.ToCard);
+                var asBalance = cash - toCard;
+
+                if (toCard > 0)
+                    db.LedgerEntries.AddRange(Ledger.SettleRefund(booking, toCard, now));
+                if (asBalance > 0)
+                {
+                    db.LedgerEntries.AddRange(Ledger.SettleRefundAsCredit(booking, asBalance, now));
+                    if (booking.GuestUserId is { } owner)
+                        db.CreditEntries.Add(CreditLedger.Grant(
+                            owner, asBalance, CreditReason.Returned,
+                            $"Hoàn chênh lệch đổi lịch đơn {booking.Reference}", now, booking.Id));
+                }
+
+                booking.DepositPaid = Math.Max(0m, booking.DepositPaid - cash);
+            }
+        }
 
         change.Status = ChangeRequestStatus.Accepted;
         change.RespondedAt = DateTime.UtcNow;
@@ -188,7 +257,8 @@ public class HostOperationsController(
             .ToListAsync(ct);
 
         var live = orders.Count(o => BookingLifecycle.BlocksDates.Contains(o.Status));
-        var cancels = orders.Count(o => o.CancelledBy == CancelledBy.Host);
+        var cancels = orders.Count(o => o.Status == BookingStatus.CancelledByHost
+                                        && o.CancelledBy == CancelledBy.Host);
         var after = Math.Round((cancels + 1) * 100.0 / Math.Max(1, live + cancels + 1), 2);
 
         var rateNote = after >= Badges.SuperhostCancelRate
@@ -199,16 +269,23 @@ public class HostOperationsController(
         var consequences = new List<string>
         {
             $"Khách được hoàn {outcome.Amount:N0}đ — toàn bộ số tiền đã trả.",
-            "Ngày trong lịch được mở lại, khách khác có thể đặt ngay.",
+            "Những ngày của đơn này bị chặn trên lịch, không nhận đặt lại.",
+            "Tin đăng hiện ghi chú công khai rằng bạn đã huỷ một đơn trước ngày nhận phòng.",
+            host?.IsSuperhost == true
+                ? "Bạn mất danh hiệu Siêu chủ nhà ngay và không được xét lại trong 1 năm."
+                : "Bạn không được xét danh hiệu Siêu chủ nhà trong 1 năm.",
             rateNote
         };
 
+        if (cancels + 1 >= HostCancelHideAt)
+            consequences.Add($"Đây là lần huỷ thứ {cancels + 1} trong 1 năm: tin đăng bị tạm ẩn để Staylio xem xét.");
+
         if (outcome.GoodwillCredit > 0)
-            consequences.Insert(1, $"Khách nhận thêm {outcome.GoodwillCredit:N0}đ số dư đền bù (docs/03 §4).");
+            consequences.Insert(1, $"Khách nhận thêm {outcome.GoodwillCredit:N0}đ số dư đền bù.");
 
         if (opensShield)
             consequences.Insert(1,
-                $"Còn {daysOut} ngày tới ngày nhận phòng nên hệ thống **tự mở hồ sơ Staylio Shield** "
+                $"Còn {daysOut} ngày tới ngày nhận phòng nên hệ thống tự mở hồ sơ Staylio Shield "
                 + "để tìm chỗ ở thay thế cho khách; chi phí chênh lệch có thể được thu lại từ bạn.");
 
         return Ok(new HostCancelPreviewDto(
@@ -265,6 +342,8 @@ public class HostOperationsController(
             db, booking, outcome, CancelledBy.Host,
             (req?.Reason ?? "Chủ nhà huỷ đơn").Trim(), sentBack);
 
+        await ApplyHostCancelPenaltyAsync(booking, ct);
+
         // docs/01 ĐG-12 — a public note on the listing, so the next guest sees the
         // host has pulled out of a confirmed stay before. Not a review: no rating,
         // no effect on the score.
@@ -286,6 +365,58 @@ public class HostOperationsController(
             credit = outcome.GoodwillCredit,
             message = "Đã huỷ đơn và hoàn tiền cho khách."
         });
+    }
+
+    /// <summary>docs/03 §4 — the third cancellation inside a year hides the listing.</summary>
+    private const int HostCancelHideAt = 3;
+
+    /// <summary>
+    /// docs/03 §4, "Hậu quả khi chủ nhà tự huỷ đơn đã xác nhận". Three of the
+    /// five used to be missing: the dates went straight back on sale, the
+    /// Superhost title waited for the quarter, and nothing ever hid a listing.
+    /// The fifth — a penalty rising towards check-in — has no amounts in the
+    /// spec and is left for the customer to set.
+    /// </summary>
+    private async Task ApplyHostCancelPenaltyAsync(Booking booking, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+
+        if (booking.CheckOut > booking.CheckIn)
+        {
+            db.CalendarBlocks.Add(new CalendarBlock
+            {
+                ListingId = booking.ListingId,
+                From = booking.CheckIn,
+                To = booking.CheckOut.AddDays(-1),
+                Note = $"Đã huỷ đơn {booking.Reference} — ngày bị chặn",
+                ExternalUid = CalendarBlock.HostCancelPrefix + booking.Id
+            });
+        }
+
+        var hostId = booking.Listing!.HostId;
+        var host = await db.Hosts.FirstOrDefaultAsync(h => h.Id == hostId, ct);
+        if (host is { IsSuperhost: true })
+        {
+            host.IsSuperhost = false;
+            db.BookingEvents.Add(BookingLifecycle.Note(
+                booking, "system", "Chủ nhà mất danh hiệu Siêu chủ nhà do tự huỷ đơn."));
+        }
+
+        var yearAgo = DateOnly.FromDateTime(now).AddYears(-1);
+        var cancels = await db.Bookings.CountAsync(b =>
+            b.Listing!.HostId == hostId && b.CheckIn >= yearAgo
+            && b.Status == BookingStatus.CancelledByHost && b.CancelledBy == CancelledBy.Host
+            && b.Id != booking.Id, ct) + 1;
+
+        if (cancels >= HostCancelHideAt && booking.Listing is { } listing
+            && listing.ReviewStatus == ListingReviewStatus.Approved)
+        {
+            // Pending rather than unpublished: it drops out of search at once and
+            // lands in the admin queue, which reads published pending listings.
+            listing.ReviewStatus = ListingReviewStatus.Pending;
+            listing.SubmittedForReviewAt = now;
+            listing.ReviewNote = $"Tạm ẩn: chủ nhà đã huỷ {cancels} đơn trong 1 năm.";
+        }
     }
 
     private async Task<(User? User, HostProfile? Profile)> ResolveAsync(CancellationToken ct)
@@ -544,23 +675,27 @@ public class HostOperationsController(
     [HttpPost("listings/{id:int}/days")]
     public async Task<IActionResult> EditDays(int id, [FromBody] BulkDayEditRequest req, CancellationToken ct)
     {
-        var listing = await OwnedListingAsync(id, ct);
+        // A price is a Pricing matter. This endpoint used to need only Calendar,
+        // so a co-host lent the calendar could set any nightly rate.
+        var listing = await OwnedListingAsync(
+            id, ct, req.NightlyRate is not null ? CoHostScope.Pricing : CoHostScope.Calendar);
         if (listing is null) return this.Denied();
 
         if (req.To < req.From) return BadRequest(new { message = "Ngày kết thúc phải sau ngày bắt đầu." });
         if (req.To.DayNumber - req.From.DayNumber > 365)
             return BadRequest(new { message = "Chỉ sửa được tối đa 365 ngày một lần." });
+        if (req.NightlyRate is < 50_000)
+            return BadRequest(new { message = "Giá mỗi đêm tối thiểu 50.000₫." });
+        if (req.MinNights is < 1 or > 365)
+            return BadRequest(new { message = "Số đêm tối thiểu phải từ 1 đến 365." });
 
-        // Day overrides beat seasons, so a bulk edit replaces any earlier
-        // override on the same days rather than stacking on top of it.
-        var stale = await db.PriceRules
-            .Where(r => r.ListingId == id && r.Kind == PriceRuleKind.DayOverride
-                        && r.From <= req.To && req.From <= r.To)
-            .ToListAsync(ct);
-
-        if (req.NightlyRate is not null || req.MinNights is not null)
+        if (req.NightlyRate is { } rate)
         {
-            db.PriceRules.RemoveRange(stale);
+            // Day overrides beat seasons, so the edited days are replaced rather
+            // than stacked on. Only those days: an override reaching past the
+            // edited range keeps its outer parts, where it used to be dropped
+            // whole and the neighbouring days fell back to the base price.
+            await CarveAsync(id, PriceRuleKind.DayOverride, req.From, req.To, keepInside: false, ct);
             db.PriceRules.Add(new PriceRule
             {
                 ListingId = id,
@@ -568,8 +703,29 @@ public class HostOperationsController(
                 Name = req.Label ?? "Giá theo ngày",
                 From = req.From,
                 To = req.To,
-                NightlyRate = req.NightlyRate ?? listing.PricePerNight,
+                NightlyRate = rate,
                 MinNights = req.MinNights
+            });
+        }
+
+        if (req.MinNights is { } min && req.NightlyRate is null)
+        {
+            // docs/03 §1 step 1 — a day's own price outranks season and weekend.
+            // Changing only the minimum used to write a day override at the base
+            // price, so a Tết rate of 2 million quietly became the base the moment
+            // the host set "tối thiểu 3 đêm". The minimum now lives on a rule
+            // that carries no price at all, and the days' prices are untouched.
+            await CarveAsync(id, PriceRuleKind.MinStay, req.From, req.To, keepInside: false, ct);
+            await CarveAsync(id, PriceRuleKind.DayOverride, req.From, req.To, keepInside: true, ct);
+            db.PriceRules.Add(new PriceRule
+            {
+                ListingId = id,
+                Kind = PriceRuleKind.MinStay,
+                Name = req.Label ?? "Số đêm tối thiểu",
+                From = req.From,
+                To = req.To,
+                NightlyRate = 0,
+                MinNights = min
             });
         }
 
@@ -582,14 +738,49 @@ public class HostOperationsController(
         }
         else if (req.Blocked == false)
         {
+            // Imported blocks belong to their feed and a cancelled stay's nights
+            // stay shut (docs/03 §4); only the host's own blocks are the host's
+            // to clear.
             var overlapping = await db.CalendarBlocks
-                .Where(b => b.ListingId == id && b.From <= req.To && req.From <= b.To)
+                .Where(b => b.ListingId == id && b.From <= req.To && req.From <= b.To
+                            && b.FeedId == null
+                            && (b.ExternalUid == null || !b.ExternalUid.StartsWith(CalendarBlock.HostCancelPrefix)))
                 .ToListAsync(ct);
             db.CalendarBlocks.RemoveRange(overlapping);
         }
 
         await db.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    /// <summary>
+    /// Cuts [<paramref name="from"/>, <paramref name="to"/>] out of every rule of
+    /// one kind on a listing. The parts outside stay as they were; the part
+    /// inside is dropped, or with <paramref name="keepInside"/> kept with its
+    /// minimum cleared, so a new minimum is the only one on those days.
+    /// </summary>
+    private async Task CarveAsync(
+        int listingId, PriceRuleKind kind, DateOnly from, DateOnly to, bool keepInside, CancellationToken ct)
+    {
+        var hit = await db.PriceRules
+            .Where(r => r.ListingId == listingId && r.Kind == kind && r.From <= to && from <= r.To)
+            .ToListAsync(ct);
+
+        foreach (var r in hit)
+        {
+            db.PriceRules.Remove(r);
+
+            PriceRule Piece(DateOnly a, DateOnly b, int? min) => new()
+            {
+                ListingId = r.ListingId, Kind = r.Kind, Name = r.Name,
+                From = a, To = b, NightlyRate = r.NightlyRate, MinNights = min
+            };
+
+            if (r.From < from) db.PriceRules.Add(Piece(r.From, from.AddDays(-1), r.MinNights));
+            if (r.To > to) db.PriceRules.Add(Piece(to.AddDays(1), r.To, r.MinNights));
+            if (keepInside)
+                db.PriceRules.Add(Piece(r.From > from ? r.From : from, r.To < to ? r.To : to, null));
+        }
     }
 
     /* ------------------------------------------------------------- QL-15 */
@@ -1118,8 +1309,7 @@ public class HostOperationsController(
             }
             else
             {
-                var test = gateway.Charge(
-                    Payouts.TestTransferAmount, "bank-transfer-test", profile.PayoutAccountLast4);
+                var test = gateway.TestTransfer(Payouts.TestTransferAmount, profile.PayoutAccountLast4);
 
                 if (test.Ok)
                 {

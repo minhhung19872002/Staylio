@@ -107,6 +107,6 @@ public static class TaxReports
     /// tax total needs to know the platform already remitted it.
     /// </summary>
     public const string RemittanceNote =
-        "Thuế trong bảng này do khách trả và Staylio đã nộp thay cho cơ quan thuế " +
-        "(docs/03 §1 bước 8). Đơn được tính vào năm có ngày trả phòng.";
+        "Thuế trong bảng này do khách trả và Staylio đã nộp thay cho cơ quan thuế. " +
+        "Đơn được tính vào năm có ngày trả phòng.";
 }

@@ -390,7 +390,12 @@ function ChangeTrip({ booking }) {
   const [open, setOpen] = useState(false);
   const [checkIn, setCheckIn] = useState(booking.checkIn);
   const [checkOut, setCheckOut] = useState(booking.checkOut);
-  const [guests, setGuests] = useState(booking.guests);
+  // docs/03 §1 — adults and children are counted, infants and pets are not but
+  // pets are priced. Asked for separately so a change keeps the whole party.
+  const [adults, setAdults] = useState(booking.adults || booking.guests);
+  const [children, setChildren] = useState(booking.children ?? 0);
+  const [infants, setInfants] = useState(booking.infants ?? 0);
+  const [pets, setPets] = useState(booking.pets ?? 0);
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -401,7 +406,10 @@ function ChangeTrip({ booking }) {
     setBusy(true);
     try {
       const r = await api.requestChange(booking.id, {
-        checkIn, checkOut, guests: Number(guests), adults: Number(guests)
+        checkIn, checkOut,
+        guests: Number(adults) + Number(children),
+        adults: Number(adults), children: Number(children),
+        infants: Number(infants), pets: Number(pets)
       });
       setPending(r);
       toast('Đã gửi yêu cầu đổi lịch, chờ chủ nhà duyệt trong 24 giờ.');
@@ -433,8 +441,14 @@ function ChangeTrip({ booking }) {
             <input type="date" value={checkIn} onChange={e => setCheckIn(e.target.value)} /></label>
           <label className="form-field"><span className="cap">{t('Trả phòng')}</span>
             <input type="date" value={checkOut} onChange={e => setCheckOut(e.target.value)} /></label>
-          <label className="form-field"><span className="cap">{t('Số khách')}</span>
-            <input type="number" min="1" value={guests} onChange={e => setGuests(e.target.value)} /></label>
+          <label className="form-field"><span className="cap">{t('Người lớn')}</span>
+            <input type="number" min="1" value={adults} onChange={e => setAdults(e.target.value)} /></label>
+          <label className="form-field"><span className="cap">{t('Trẻ em')}</span>
+            <input type="number" min="0" value={children} onChange={e => setChildren(e.target.value)} /></label>
+          <label className="form-field"><span className="cap">{t('Em bé')}</span>
+            <input type="number" min="0" value={infants} onChange={e => setInfants(e.target.value)} /></label>
+          <label className="form-field"><span className="cap">{t('Thú cưng')}</span>
+            <input type="number" min="0" value={pets} onChange={e => setPets(e.target.value)} /></label>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button className="btn btn-outline btn-sm" onClick={() => setOpen(false)}>{t('Huỷ')}</button>
             <button className="btn btn-primary btn-sm" disabled={busy} onClick={submit}>{t('Gửi yêu cầu')}</button>

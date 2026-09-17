@@ -90,6 +90,29 @@ public class AdminGate(StayHostDbContext db, AuthService auth, AdminAudit audit)
     /// docs/08 §1.3 — "Hệ thống phải tự phát hiện và chặn." Everything here is
     /// read from data the platform already keeps, so it cannot be talked around.
     /// </summary>
+    /// <summary>
+    /// docs/08 §1.3 and §3 for decisions that are about a booking rather than an
+    /// account: the admin must hold a two-factor session and must not be either
+    /// party to it. Four money decisions — a Shield case, a resolution case, a
+    /// price match and force majeure — checked the role and nothing else, so an
+    /// arbitrator could rule on their own stay and pay themselves.
+    /// </summary>
+    public async Task<string?> PartyConflictAsync(
+        User admin, int? guestUserId, int? hostUserId, CancellationToken ct)
+    {
+        if (!AdminActions.MayHoldAdminSession(admin.TwoFactorEnabled))
+            return AdminActions.TwoFactorRequiredMessage();
+
+        foreach (var party in new[] { guestUserId, hostUserId })
+        {
+            if (party is not { } id) continue;
+            var conflict = await ConflictAsync(admin, id, ct);
+            if (AdminConflict.Blocks(conflict)) return AdminConflict.Message(conflict);
+        }
+
+        return null;
+    }
+
     public async Task<ConflictKind> ConflictAsync(User admin, int targetUserId, CancellationToken ct)
     {
         if (admin.Id == targetUserId) return ConflictKind.Self;

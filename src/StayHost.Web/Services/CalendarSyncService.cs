@@ -167,10 +167,18 @@ public class CalendarSyncService(
     private static string Note(CalendarFeed feed, IcalEvent e) =>
         string.IsNullOrWhiteSpace(e.Summary) ? feed.Label : $"{feed.Label}: {e.Summary}";
 
-    private static string Summarise(Exception ex) =>
-        ex is HttpRequestException http
+    private static string Summarise(Exception ex)
+    {
+        // The host typed the address, so a refused one is said plainly; any other
+        // network failure keeps to a status code and says nothing about what
+        // answered on the other end.
+        for (var e = ex; e is not null; e = e.InnerException)
+            if (e is Infrastructure.NotPublicAddressException refused) return refused.Message;
+
+        return ex is HttpRequestException http
             ? $"Không tải được lịch ({(int?)http.StatusCode ?? 0})."
             : ex.Message.Length > 200 ? ex.Message[..200] : ex.Message;
+    }
 }
 
 /// <summary>Refreshes every feed on a slow loop so a host never has to press anything.</summary>

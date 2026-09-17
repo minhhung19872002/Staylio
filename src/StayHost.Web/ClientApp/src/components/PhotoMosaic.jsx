@@ -63,7 +63,7 @@ function ContactSheet({ images, alt, onPick, onClose }) {
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal wide" role="dialog" aria-modal="true" aria-label={`${alt} — ${images.length} ảnh`}>
+      <div className="modal wide" role="dialog" aria-modal="true" aria-label={`${alt} — ${images.length} ${t('ảnh')}`}>
         <div className="modal-head">
           <button className="modal-close" onClick={onClose} aria-label={t('Đóng')}>✕</button>
           <h2>{alt} — {images.length} ảnh</h2>
@@ -113,7 +113,7 @@ function Viewer({ images, alt, index, onIndex, onGrid, onClose }) {
   }, []);
 
   return (
-    <div className="viewer" role="dialog" aria-modal="true" aria-label={`${alt} — ảnh`}>
+    <div className="viewer" role="dialog" aria-modal="true" aria-label={`${alt} — ${t('ảnh')}`}>
       <header className="viewer-bar">
         <button className="viewer-btn" onClick={onClose}>✕ <span>{t('Đóng')}</span></button>
         <span className="viewer-count">{idx + 1} / {total}</span>

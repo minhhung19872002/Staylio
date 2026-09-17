@@ -138,6 +138,10 @@ function AdminModal({ title, onClose, children }) {
 
 function UserProfilePanel({ d, reload }) {
   const [preview, setPreview] = useState(null);
+  // docs/08 §6 — "hoàn theo chính sách hoặc hoàn 100% tuỳ mức độ vi phạm —
+  // admin chọn". One choice, read by the preview and by the lock itself, so
+  // what is confirmed is what happens.
+  const [fullRefund, setFullRefund] = useState(true);
   const [busy, setBusy] = useState(false);
   const [identity, setIdentity] = useState(null);
   const [thread, setThread] = useState(null);
@@ -181,8 +185,8 @@ function UserProfilePanel({ d, reload }) {
   };
 
   // docs/08 §6 — the cost is shown before anything happens, never after.
-  const showPreview = async () => {
-    try { setPreview(await api.adminLockPreview(d.id)); }
+  const showPreview = async (full = fullRefund) => {
+    try { setPreview(await api.adminLockPreview(d.id, full)); }
     catch (err) { toast(err.message); }
   };
 
@@ -197,7 +201,7 @@ function UserProfilePanel({ d, reload }) {
       level: 'Suspension', reason,
       severeGround: SEVERE[Number(severe) - 1] ?? null,
       days: Number(days) || null,
-      refundInFull: true
+      refundInFull: fullRefund
     }), 'Đã tạm khoá tài khoản.');
   };
 
@@ -208,7 +212,7 @@ function UserProfilePanel({ d, reload }) {
     if (!picked) return;
     const reason = ask(`Khoá vĩnh viễn: ${picked}`);
     if (!reason) return;
-    run(() => api.adminSanction(d.id, { level: 'Ban', reason, severeGround: picked }),
+    run(() => api.adminSanction(d.id, { level: 'Ban', reason, severeGround: picked, refundInFull: fullRefund }),
         'Đã khoá vĩnh viễn.');
   };
 
@@ -440,7 +444,12 @@ function UserProfilePanel({ d, reload }) {
       {/* docs/08 §6 and QT-U-07 — what a lock would cost, before it happens. */}
       {!!preview && (
         <div className={`book-alert ${preview.guestsStaying ? '' : 'is-error'}`} style={{ marginTop: 16 }}>
-          <b>{preview.warning}</b>
+          <label className="check-row">
+            <input type="checkbox" checked={fullRefund}
+                   onChange={e => { setFullRefund(e.target.checked); showPreview(e.target.checked); }} />
+            <span>{t('Hoàn 100% cho các chuyến người này đã đặt (bỏ chọn để hoàn theo chính sách huỷ)')}</span>
+          </label>
+          <b>{t(preview.warning)}</b>
           {!!preview.openDisputeNotice && <span>{preview.openDisputeNotice}</span>}
           {!!preview.safetyNotice && <span>{preview.safetyNotice}</span>}
           {/* docs/08 §6 — the row about promotional balance, which the admin
@@ -492,7 +501,7 @@ function UserProfilePanel({ d, reload }) {
       )}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-        <button className="btn btn-outline btn-sm" onClick={showPreview}>{t('Xem trước hậu quả khoá')}</button>
+        <button className="btn btn-outline btn-sm" onClick={() => showPreview()}>{t('Xem trước hậu quả khoá')}</button>
         {may('Warn') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={warn}>{t('Cảnh cáo')}</button>}
         {may('Restrict') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={restrict}>{t('Hạn chế')}</button>}
         {may('Suspend') && !d.isLocked &&

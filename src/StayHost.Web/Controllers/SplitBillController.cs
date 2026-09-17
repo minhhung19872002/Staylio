@@ -18,10 +18,11 @@ namespace StayHost.Web.Controllers;
 public class SplitBillController(
     StayHostDbContext db,
     AuthService auth,
-    CatalogService catalog,
-    NotificationService notifications,
     PaymentGateway gateway,
-    SplitBillService splits) : ControllerBase
+    SplitBillService splits,
+    BankTransferSettings bank,
+    Services.Gateways.PspRouter psp,
+    Services.Gateways.PspCheckout pspCheckout) : ControllerBase
 {
     /* ------------------------------------------------------ the organiser */
 
@@ -171,25 +172,40 @@ public class SplitBillController(
         if (BillSplitRules.Expired(split.ExpiresAt, DateTime.UtcNow))
             return BadRequest(new { message = "Đã quá 24 giờ, lượt chia hoá đơn này hết hạn." });
 
-        var booking = await db.Bookings
-            .Include(b => b.Payment).Include(b => b.Events).Include(b => b.Listing)
-            .FirstAsync(b => b.Id == split.BookingId, ct);
+        // docs/07 §2 — a share is paid by a card or a wallet, like the stay it is
+        // part of. It used to be charged as "card" by the stand-in whatever the
+        // site had switched on, so a whole stay could be confirmed by typing
+        // 4242 once per share.
+        var (road, refusal) = ProductCheckout.Choose(psp, bank, req?.PaymentMethod);
+        if (refusal is not null || road == ProductCheckout.Road.Transfer)
+            return BadRequest(new { message = refusal ?? Payments.Message(DeclineReason.MethodUnavailable) });
+        var method = ProductCheckout.Normalise(req?.PaymentMethod);
 
-        var attempt = gateway.Charge(share.Amount, "card", req?.CardLast4);
+        if (road == ProductCheckout.Road.Gateway)
+        {
+            var booking = await db.Bookings.FirstAsync(b => b.Id == split.BookingId, ct);
+            if (!string.IsNullOrWhiteSpace(req?.Name)) share.Name = req.Name.Trim();
+
+            var started = await pspCheckout.StartForAsync(
+                new PaymentSession
+                {
+                    BookingId = booking.Id, BillShareId = share.Id, Method = method,
+                    Amount = share.Amount, AttemptKey = $"share-{share.Id}"
+                },
+                share.Id, $"Staylio {booking.Reference}", null,
+                Psp.ClientIp(HttpContext.Connection.RemoteIpAddress?.ToString()), ct);
+
+            if (!started.Ok || started.PayUrl is null)
+                return BadRequest(new { message = started.Error, retryable = true });
+
+            var pending = await InviteDtoAsync(token, ct);
+            return pending is null ? NotFound() : Ok(pending with { GatewayRedirectUrl = started.PayUrl, GatewayOrderRef = started.OrderRef });
+        }
+
+        var attempt = gateway.Charge(share.Amount, method, req?.CardLast4);
         if (!attempt.Ok) return BadRequest(new { message = attempt.Reason });
 
-        share.Status = BillShareStatus.Paid;
-        share.CardLast4 = req?.CardLast4;
-        share.PaidAt = DateTime.UtcNow;
-        if (!string.IsNullOrWhiteSpace(req?.Name)) share.Name = req.Name.Trim();
-
-        db.LedgerEntries.AddRange(
-            Ledger.HoldShare(booking.Id, booking.Reference, share.Amount, DateTime.UtcNow));
-        await db.SaveChangesAsync(ct);
-
-        // The last share turns the whole thing into an ordinary paid booking.
-        if (split.Shares.All(s => s.Status == BillShareStatus.Paid))
-            await splits.CompleteAsync(split, booking, catalog, notifications, ct);
+        await splits.SharePaidAsync(share.Id, share.Amount, ct, req?.Name, req?.CardLast4);
 
         var dto = await InviteDtoAsync(token, ct);
         return dto is null ? NotFound() : Ok(dto);

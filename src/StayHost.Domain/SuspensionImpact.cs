@@ -148,6 +148,19 @@ public static class SuspensionImpact
         return new Preview(lines, staying, cancelled, refunded, held, disputed);
     }
 
+    /// <summary>
+    /// docs/08 §6 — somebody who hosts and also travels is locked on both
+    /// tables at once. Only the host table used to be read for them, so the
+    /// trips they had booked as a guest carried on as if nothing happened.
+    /// </summary>
+    public static Preview Combine(Preview asHost, Preview asGuest) => new(
+        [.. asHost.Lines, .. asGuest.Lines],
+        asHost.GuestsStaying + asGuest.GuestsStaying,
+        asHost.BookingsCancelled + asGuest.BookingsCancelled,
+        asHost.MoneyRefunded + asGuest.MoneyRefunded,
+        asHost.PayoutHeld + asGuest.PayoutHeld,
+        asHost.AnyOpenDispute || asGuest.AnyOpenDispute);
+
     /* ------------------------------------------------------ the guardrails */
 
     /// <summary>

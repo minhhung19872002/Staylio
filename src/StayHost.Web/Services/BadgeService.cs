@@ -108,13 +108,21 @@ public class BadgeService(StayHostDbContext db, NotificationService notification
 
         var listingIds = listings.Select(l => l.Id).ToList();
 
+        // A trip is one that happened. Counting every booking checking in after
+        // `since` took in unpaid holds and next year's stays, so a host could
+        // "have" ten trips a year before hosting one.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var stays = await db.Bookings
-            .Where(b => listingIds.Contains(b.ListingId) && b.CheckIn >= since)
+            .Where(b => listingIds.Contains(b.ListingId) && b.CheckIn >= since && b.CheckIn <= today)
             .Select(b => new { b.Status, b.Nights, b.CancelledBy })
             .ToListAsync(ct);
 
-        var completed = stays.Where(s => BookingLifecycle.BlocksDates.Contains(s.Status)).ToList();
-        var hostCancels = stays.Count(s => s.CancelledBy == CancelledBy.Host);
+        var completed = stays.Where(s => s.Status == BookingStatus.Completed).ToList();
+
+        // docs/03 §8 — "tự huỷ" is a confirmed stay the host walked away from.
+        // Declining a request carries CancelledBy.Host too, and used to count.
+        var hostCancels = stays.Count(s => s.Status == BookingStatus.CancelledByHost
+                                           && s.CancelledBy == CancelledBy.Host);
         var orders = Math.Max(1, completed.Count + hostCancels);
 
         var rated = listings.Where(l => l.ReviewCount > 0).ToList();
@@ -125,7 +133,8 @@ public class BadgeService(StayHostDbContext db, NotificationService notification
             completed.Count,
             completed.Sum(s => s.Nights),
             ParsePercent(host.ResponseRate),
-            Math.Round(hostCancels * 100.0 / orders, 2));
+            Math.Round(hostCancels * 100.0 / orders, 2),
+            hostCancels);
     }
 
     /* ------------------------------------------------- Khách chọn, weekly */

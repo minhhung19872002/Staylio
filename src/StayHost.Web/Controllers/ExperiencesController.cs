@@ -15,7 +15,8 @@ namespace StayHost.Web.Controllers;
 [ApiController]
 [Route("api/experiences")]
 public class ExperiencesController(
-    StayHostDbContext db, AuthService auth, ExperienceService experiences, AdminAudit audit) : ControllerBase
+    StayHostDbContext db, AuthService auth, ExperienceService experiences, AdminAudit audit,
+    Services.Gateways.PspRouter psp, Services.Gateways.PspCheckout pspCheckout) : ControllerBase
 {
     /// <summary>
     /// docs/09 §2.7 (MR-E-06) — takes the seats off the session for ten minutes
@@ -176,7 +177,31 @@ public class ExperiencesController(
         var (booking, error) = await experiences.BookAsync(user, slotId, req, ct);
         if (booking is null) return BadRequest(new { message = error });
 
-        return Ok(await experiences.BookingDtoAsync(booking.Id, ct));
+        var dto = await experiences.BookingDtoAsync(booking.Id, ct);
+
+        // docs/07 §13 — the ticket waits while the guest pays on the gateway's page.
+        var method = ProductCheckout.Normalise(req.PaymentMethod);
+        if (booking.Status == ExperienceBookingStatus.AwaitingPayment && psp.IsLive(method))
+        {
+            var started = await pspCheckout.StartForAsync(
+                new PaymentSession
+                {
+                    ExperienceBookingId = booking.Id, Method = method, Amount = booking.Total,
+                    AttemptKey = $"xp-{booking.Id}"
+                },
+                booking.Id, $"Staylio {booking.Reference}", user.Id,
+                Psp.ClientIp(HttpContext.Connection.RemoteIpAddress?.ToString()), ct);
+
+            if (!started.Ok || started.PayUrl is null)
+            {
+                await experiences.CancelAsync(user.Id, booking.Id, ct);
+                return BadRequest(new { message = started.Error, retryable = true });
+            }
+
+            return Ok(dto! with { GatewayRedirectUrl = started.PayUrl, GatewayOrderRef = started.OrderRef });
+        }
+
+        return Ok(dto);
     }
 
     [HttpGet("bookings")]

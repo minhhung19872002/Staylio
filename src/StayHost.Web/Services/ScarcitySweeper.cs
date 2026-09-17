@@ -51,7 +51,7 @@ public class ScarcitySweeper(
 
         var blocks = await db.CalendarBlocks
             .Where(b => saved.Contains(b.ListingId) && b.To >= today && b.From < horizon)
-            .Select(b => new { b.ListingId, b.From, b.To })
+            .Select(b => new { b.ListingId, b.From, b.To, Imported = b.FeedId != null })
             .ToListAsync(ct);
 
         var sent = 0;
@@ -60,6 +60,7 @@ public class ScarcitySweeper(
             // The same night counted twice — booked and blocked — is still one
             // night gone, so the set does the arithmetic rather than a sum.
             var taken = new HashSet<DateOnly>();
+            var closed = new HashSet<DateOnly>();
 
             foreach (var b in bookings.Where(x => x.ListingId == listing.Id))
                 // A stay holds every night from check-in up to, not including, check-out.
@@ -67,11 +68,12 @@ public class ScarcitySweeper(
                     if (d >= today && d < horizon) taken.Add(d);
 
             foreach (var b in blocks.Where(x => x.ListingId == listing.Id))
-                // A host block covers both of its endpoints.
+                // A block covers both of its endpoints. An imported one is a
+                // night sold elsewhere; the host's own is a night off the market.
                 for (var d = b.From; d <= b.To; d = d.AddDays(1))
-                    if (d >= today && d < horizon) taken.Add(d);
+                    if (d >= today && d < horizon) (b.Imported ? taken : closed).Add(d);
 
-            var reading = new Scarcity.Reading(Scarcity.WindowDays - taken.Count, Scarcity.WindowDays);
+            var reading = Scarcity.ReadingOf(taken, closed, today);
             var scarce = Scarcity.IsRareFind(reading);
 
             // Opened up again: arm the next crossing and say nothing.

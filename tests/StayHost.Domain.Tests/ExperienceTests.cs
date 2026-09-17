@@ -48,6 +48,15 @@ public class ExperienceTests
     }
 
     [Fact]
+    public void Booking_closes_a_day_before_the_session()
+    {
+        Assert.Equal(
+            ExperienceRules.Refusal.BookingClosed,
+            ExperienceRules.CanBook(Make(), Slot(hoursAhead: 23), 1, false, Now).Reason);
+        Assert.True(ExperienceRules.CanBook(Make(), Slot(hoursAhead: 25), 1, false, Now).Ok);
+    }
+
+    [Fact]
     public void A_cancelled_session_takes_nobody_either()
     {
         var slot = Slot();

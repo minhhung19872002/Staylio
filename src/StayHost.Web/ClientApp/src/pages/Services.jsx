@@ -787,6 +787,8 @@ export function ServiceCheckout() {
         conditionsConfirmed: conditionsOk
       });
       // docs/07 §2.3 — see the experience checkout: a transfer goes to the QR.
+      // docs/07 §13 — a licensed gateway takes the money on its own page.
+      if (b.gatewayRedirectUrl) { window.location.assign(b.gatewayRedirectUrl); return; }
       if (b.status === 'AwaitingPayment') { navigate(`/chuyen-khoan/${b.reference}`); return; }
       toast(`${t('Đã đặt — mã')} ${b.reference}`);
       navigate('/services/bookings');

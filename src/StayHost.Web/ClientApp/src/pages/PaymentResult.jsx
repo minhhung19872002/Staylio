@@ -22,13 +22,18 @@ export function PaymentResult() {
   const hint = params.get('ket-qua') ?? 'pending';
   const bookingId = Number(params.get('don')) || null;
   const orderRef = params.get('ma');
+  // docs/07 §13 — what this visit paid for: a stay (default), the rest of a
+  // part-paid stay, an experience ticket or a service.
+  const kind = params.get('loai') ?? 'stay';
+  const ticketId = Number(params.get('ve')) || null;
+  const subjectId = kind === 'xp' || kind === 'svc' ? ticketId : bookingId;
 
   const [booking, setBooking] = useState(null);
   const [error, setError] = useState(null);
   const [asking, setAsking] = useState(true);
 
   useEffect(() => {
-    if (!bookingId) { setAsking(false); return; }
+    if (!subjectId) { setAsking(false); return; }
 
     let alive = true;
     let tries = 0;
@@ -36,12 +41,12 @@ export function PaymentResult() {
 
     const ask = async () => {
       try {
-        const b = await api.booking(bookingId);
+        const b = await readSubject(kind, subjectId);
         if (!alive) return;
         setBooking(b);
 
-        // Confirmed, or gone for good — nothing left to wait for.
-        if (b.status !== 'PendingPayment') { setAsking(false); return; }
+        // Settled, or gone for good — nothing left to wait for.
+        if (!stillWaiting(kind, b)) { setAsking(false); return; }
       } catch (err) {
         if (!alive) return;
         setError(t(err.message));
@@ -58,9 +63,9 @@ export function PaymentResult() {
 
     ask();
     return () => { alive = false; if (timer) clearTimeout(timer); };
-  }, [bookingId]);
+  }, [kind, subjectId]);
 
-  const paid = booking?.status === 'Confirmed';
+  const paid = isPaid(kind, booking);
   const waiting = asking && !paid;
 
   return (
@@ -133,11 +138,35 @@ export function PaymentResult() {
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
         <button className="btn btn-primary"
-                onClick={() => navigate(bookingId ? `/trips/${bookingId}` : '/trips')}>
+                onClick={() => navigate(destination(kind, bookingId))}>
           {paid ? t('Xem đơn của bạn') : t('Xem chuyến của tôi')}
         </button>
         <button className="btn btn-outline" onClick={() => navigate('/')}>{t('Về trang chủ')}</button>
       </div>
     </div>
   );
+}
+
+async function readSubject(kind, id) {
+  if (kind === 'xp') return (await api.experienceBookings()).find(b => b.id === id) ?? Promise.reject(new Error('Không tìm thấy vé này.'));
+  if (kind === 'svc') return (await api.serviceBookings()).find(b => b.id === id) ?? Promise.reject(new Error('Không tìm thấy đơn dịch vụ này.'));
+  return api.booking(id);
+}
+
+function isPaid(kind, b) {
+  if (!b) return false;
+  if (kind === 'balance') return b.balanceStatus === 'Paid' || b.balanceDue === 0;
+  return b.status === 'Confirmed';
+}
+
+function stillWaiting(kind, b) {
+  if (kind === 'balance') return !isPaid(kind, b) && ['Confirmed', 'InProgress'].includes(b.status);
+  if (kind === 'xp' || kind === 'svc') return b.status === 'AwaitingPayment';
+  return b.status === 'PendingPayment';
+}
+
+function destination(kind, bookingId) {
+  if (kind === 'xp') return '/experiences/bookings';
+  if (kind === 'svc') return '/services/bookings';
+  return bookingId ? `/trips/${bookingId}` : '/trips';
 }

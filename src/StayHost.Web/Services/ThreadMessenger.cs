@@ -79,20 +79,26 @@ public class ThreadMessenger(StayHostDbContext db)
         {
             if (await AlreadyPostedAsync(b, "Ngày mai bạn nhận phòng", ct)) continue;
             await PostAsync(b,
-                $"Ngày mai bạn nhận phòng tại \"{b.Listing?.Title}\". Nhận phòng sau 14:00. " +
+                $"Ngày mai bạn nhận phòng tại \"{b.Listing?.Title}\". Nhận phòng sau {b.Listing?.CheckInFrom.ToString("HH:mm")}. " +
                 "Nếu tới muộn, nhắn cho chủ nhà trước nhé.", ct);
             posted++;
         }
 
+        // The lifecycle sweep closes a stay at local midnight on its check-out
+        // day, so "still in progress" never matched: Completed counts too, and
+        // "today" is the listing's own.
         var leaving = await db.Bookings
-            .Where(b => b.Status == BookingStatus.InProgress && b.CheckOut == today)
+            .Where(b => (b.Status == BookingStatus.InProgress || b.Status == BookingStatus.Completed)
+                        && b.CheckOut >= today.AddDays(-1) && b.CheckOut <= today.AddDays(1))
             .Include(b => b.Listing)
             .ToListAsync(ct);
 
         foreach (var b in leaving)
         {
+            if (DateOnly.FromDateTime(BookingService.LocalNow(b.Listing!)) != b.CheckOut) continue;
             if (await AlreadyPostedAsync(b, "Hôm nay là ngày trả phòng", ct)) continue;
-            await PostAsync(b, "Hôm nay là ngày trả phòng, trước 12:00. Chúc bạn đi tiếp vui vẻ!", ct);
+            await PostAsync(b,
+                $"Hôm nay là ngày trả phòng, trước {b.Listing?.CheckOutBefore.ToString("HH:mm")}. Chúc bạn đi tiếp vui vẻ!", ct);
             posted++;
         }
 
@@ -104,10 +110,14 @@ public class ThreadMessenger(StayHostDbContext db)
     {
         if (booking.GuestUserId is not int guestId) return true;
 
+        // Since this booking was made: a guest coming back to the same place
+        // shares the thread with their earlier stay, whose milestones are there
+        // already, and used to stop every reminder for the new one.
         return await db.Messages.AnyAsync(m =>
             m.IsSystem &&
             m.Thread!.ListingId == booking.ListingId &&
             m.Thread.GuestUserId == guestId &&
+            m.SentAt >= booking.CreatedAt &&
             m.Body.StartsWith(opening), ct);
     }
 }

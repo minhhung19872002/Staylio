@@ -202,7 +202,11 @@ public static class Ledger
 
         var diff = price.Total - booking.Total;
         if (diff >= 0)
-            Delta(legs, LedgerAccount.GuestFunds, diff, increaseIs: LedgerDirection.Debit, "Khách trả thêm khi đổi lịch");
+            // Owed by the guest, not yet in hand: nothing is charged when the host
+            // accepts, and posting it straight to guest funds paid the host for
+            // nights nobody had paid for. The balance collection of docs/01 ĐP-06
+            // takes it, and CollectBalance clears this receivable.
+            Delta(legs, LedgerAccount.GuestReceivable, diff, increaseIs: LedgerDirection.Debit, "Khách trả thêm khi đổi lịch");
         else
             // Money owed back to the guest, held like any other refund payable.
             legs.Add(new Leg(LedgerAccount.GuestRefundPayable, LedgerDirection.Credit, -diff, "Hoàn bớt khi đổi lịch"));
@@ -376,6 +380,22 @@ public static class Ledger
             new Leg(LedgerAccount.TaxPayable, LedgerDirection.Debit, taxBack, "Hoàn thuế"),
             new Leg(LedgerAccount.GuestFunds, LedgerDirection.Credit, amount, $"Hoàn dịch vụ {booking.Reference}"));
     }
+
+    /// <summary>
+    /// docs/07 §10 for a ticket or a service — the gateway would not take the
+    /// refund back, so the money stays with the platform as the guest's balance.
+    /// Posted after <see cref="RefundExperience"/>/<see cref="RefundService"/>,
+    /// which already moved it out of guest funds; this puts it back there and
+    /// names the balance that now holds it.
+    /// </summary>
+    public static List<LedgerEntry> RefundKeptAsCredit(
+        int? experienceBookingId, int? serviceBookingId, string reference, decimal amount, DateTime at) =>
+        amount <= 0
+            ? []
+            : Post("refund-as-credit", null, experienceBookingId, serviceBookingId, at,
+                new Leg(LedgerAccount.GuestFunds, LedgerDirection.Debit, amount, "Hoàn bằng số dư"),
+                new Leg(LedgerAccount.PromotionalCredit, LedgerDirection.Credit, amount,
+                    $"Trả lại số dư {reference}"));
 
     /// <summary>docs/01 ĐP-07 — one person's share, held until the last one lands.</summary>
     public static List<LedgerEntry> HoldShare(int bookingId, string reference, decimal amount, DateTime at) =>

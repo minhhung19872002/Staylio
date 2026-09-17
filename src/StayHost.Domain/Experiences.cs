@@ -336,8 +336,26 @@ public static class ExperienceRules
         NotEnoughSeats,
         PrivateNotOffered,
         PrivateNeedsEmptySlot,
-        BelowMinimumParty
+        BelowMinimumParty,
+        BookingClosed
     }
+
+    /// <summary>
+    /// docs/09 §2.5 and §7 TN-B — "Đóng đặt trước giờ bắt đầu 24 giờ để người
+    /// dẫn kịp chuẩn bị". Only a session that had already begun was refused, so
+    /// a ticket could be bought ten minutes before the start.
+    /// </summary>
+    public static readonly TimeSpan BookingCutoff = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// docs/09 §7 TN-D — balance given to every guest on a session the host
+    /// called off, as a share of what they paid. Not given when the system
+    /// called it off for too few people (§2.8: "không ai bị phạt").
+    /// </summary>
+    public const decimal ProviderCancelCreditRate = 0.10m;
+
+    public static decimal ProviderCancelCredit(decimal ticketTotal) =>
+        Math.Round(ticketTotal * ProviderCancelCreditRate, 0, MidpointRounding.AwayFromZero);
 
     public readonly record struct Check(bool Ok, Refusal Reason, string Message)
     {
@@ -352,6 +370,10 @@ public static class ExperienceRules
 
         if (slot.StartsAt <= now)
             return Check.Fail(Refusal.AlreadyStarted, "Suất này đã bắt đầu.");
+
+        if (slot.StartsAt - now < BookingCutoff)
+            return Check.Fail(Refusal.BookingClosed,
+                $"Suất này đã đóng đặt — cần đặt trước giờ bắt đầu ít nhất {BookingCutoff.TotalHours:0} giờ.");
 
         if (seats < 1)
             return Check.Fail(Refusal.BelowMinimumParty, "Chọn ít nhất một chỗ.");

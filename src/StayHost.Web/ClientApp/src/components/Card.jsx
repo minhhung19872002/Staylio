@@ -59,18 +59,18 @@ export function Card({ card, variant, lazy = false }) {
 
         <button className={`card-fav ${card.isFavorite ? 'is-on' : ''}`}
                 onClick={e => { e.preventDefault(); e.stopPropagation(); toggleFavorite(card.id); }}
-                aria-label={`${card.isFavorite ? 'Bỏ lưu' : 'Lưu'} ${card.title}`}
+                aria-label={`${card.isFavorite ? t('Bỏ lưu') : t('Lưu')} ${card.title}`}
                 aria-pressed={!!card.isFavorite}>♥</button>
 
         {images.length > 1 && <>
           <button className="carousel-nav prev" onClick={e => own(e, () => slides.step(-1))}
-                  aria-label="Ảnh trước">‹</button>
+                  aria-label={t('Ảnh trước')}>‹</button>
           <button className="carousel-nav next" onClick={e => own(e, () => slides.step(1))}
-                  aria-label="Ảnh tiếp theo">›</button>
+                  aria-label={t('Ảnh tiếp theo')}>›</button>
           <div className="carousel-dots">
             {images.map((_, i) => (
               <button key={i} className={`bullet ${i === idx ? 'is-on' : ''}`}
-                      onClick={e => own(e, () => slides.goTo(i))} aria-label={`Xem ảnh ${i + 1}`} />
+                      onClick={e => own(e, () => slides.goTo(i))} aria-label={`${t('Xem ảnh')} ${i + 1}`} />
             ))}
           </div>
         </>}

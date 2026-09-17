@@ -117,12 +117,12 @@ function ClaimRow({ claim, onOpen }) {
   return (
     <article className="host-booking">
       <div style={{ minWidth: 0 }}>
-        <h3>{claim.kindLabel}</h3>
+        <h3>{t(claim.kindLabel)}</h3>
         <div className="meta">{claim.listingTitle} · {t('đơn')} {claim.bookingReference} · {t('mã')} {claim.reference}</div>
         <div className="meta">{claim.description}</div>
         {claim.approved > 0 && <div className="meta">{t('Đã duyệt')} {money(claim.approved)}</div>}
         {claim.decision && <div className="meta">{t('Kết luận:')} {claim.decision}</div>}
-        <span className={`badge ${claim.statusBadge}`} style={{ marginTop: 8 }}>{claim.statusLabel}</span>
+        <span className={`badge ${claim.statusBadge}`} style={{ marginTop: 8 }}>{t(claim.statusLabel)}</span>
       </div>
       <div className="host-booking-actions">
         <button className="btn btn-outline btn-sm" onClick={onOpen}>{t('Xem hồ sơ')}</button>
@@ -179,14 +179,14 @@ function Claim({ id }) {
       <button className="back-link" onClick={() => navigate('/shield')}>← Hồ sơ Staylio Shield</button>
 
       <span className="shield-mark" style={{ marginTop: 12 }}>Staylio Shield</span>
-      <h1 className="section-title" style={{ marginTop: 8 }}>{c.kindLabel}</h1>
+      <h1 className="section-title" style={{ marginTop: 8 }}>{t(c.kindLabel)}</h1>
       <p className="section-sub">
         {t('Mã')} {c.reference} · {t('đơn')} {c.bookingReference} · {c.listingTitle}
         {' '}· {t('mở ngày')} {longDate(c.createdAt.slice(0, 10))}
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-        <span className={`badge ${c.statusBadge}`}>{c.statusLabel}</span>
+        <span className={`badge ${c.statusBadge}`}>{t(c.statusLabel)}</span>
         {c.needsManualReview && <span className="badge pending">{t('Cần người xem lại')}</span>}
         {c.appealed && <span className="badge pending">{t('Đã khiếu nại một lần')}</span>}
       </div>

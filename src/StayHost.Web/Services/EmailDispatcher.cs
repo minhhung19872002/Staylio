@@ -115,9 +115,16 @@ public class EmailDispatcher(
 
         foreach (var mail in pending)
         {
-            mail.TranslatedAt = DateTime.UtcNow;
-            if (!translation.Enabled) continue;
+            if (!translation.Enabled)
+            {
+                mail.TranslatedAt = DateTime.UtcNow;
+                continue;
+            }
 
+            // Stamped after the attempt, not before: TranslationService saves its
+            // cache mid-way, which used to write the stamp while the subject was
+            // still Vietnamese — a mail "translated" that was not, for as long as
+            // the second call took.
             try
             {
                 var title = await translation.TranslateAsync(mail.RawTitle, mail.Language, ct);
@@ -144,6 +151,10 @@ public class EmailDispatcher(
             {
                 log.LogWarning(e, "Dịch thư {Id} sang {Lang} lỗi; gửi bản tiếng Việt.",
                     mail.Id, mail.Language);
+            }
+            finally
+            {
+                mail.TranslatedAt = DateTime.UtcNow;
             }
         }
 

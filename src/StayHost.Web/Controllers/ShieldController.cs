@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using StayHost.Domain;
 using StayHost.Infrastructure;
@@ -148,7 +149,7 @@ public class ShieldController(
         var user = await auth.CurrentUserAsync(ct);
         if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
 
-        var claim = await shield.OneAsync(id, user.Id, ct);
+        var claim = await shield.OneAsync(id, user, ct);
         return claim is null ? NotFound() : Ok(claim);
     }
 
@@ -162,7 +163,7 @@ public class ShieldController(
         var (claim, error) = await shield.FileAsync(user, bookingId, req, ct);
         if (claim is null) return BadRequest(new { message = error });
 
-        return Ok(await shield.OneAsync(claim.Id, user.Id, ct));
+        return Ok(await shield.OneAsync(claim.Id, user, ct));
     }
 
     [HttpPost("{id:int}/respond")]
@@ -175,7 +176,7 @@ public class ShieldController(
         var error = await shield.RespondAsync(user, id, req, ct);
         if (error is not null) return BadRequest(new { message = error });
 
-        return Ok(await shield.OneAsync(id, user.Id, ct));
+        return Ok(await shield.OneAsync(id, user, ct));
     }
 
     [HttpPost("{id:int}/appeal")]
@@ -188,7 +189,7 @@ public class ShieldController(
         var error = await shield.AppealAsync(user, id, req?.Note, ct);
         if (error is not null) return BadRequest(new { message = error });
 
-        return Ok(await shield.OneAsync(id, user.Id, ct));
+        return Ok(await shield.OneAsync(id, user, ct));
     }
 
     /* ------------------------------------------------------------- admin */
@@ -229,13 +230,20 @@ public class ShieldController(
 
     [HttpPost("admin/{id:int}/decide")]
     public async Task<ActionResult<ShieldClaimDto>> Decide(
-        int id, [FromBody] DecideShieldRequest req, CancellationToken ct)
+        int id, [FromBody] DecideShieldRequest req, [FromServices] AdminGate gate, CancellationToken ct)
     {
         var admin = await audit.RequireAsync(AdminScope.Arbitration, ct);
         if (admin is null) return StatusCode(403, new { message = "Bạn không có quyền phân xử." });
 
-        var before = await shield.OneAsync(id, null, ct);
+        var before = await shield.OneAsync(id, admin, ct);
         if (before is null) return NotFound();
+
+        var parties = await db.ShieldClaims
+            .Where(c => c.Id == id)
+            .Select(c => new { Guest = c.Booking!.GuestUserId, Host = (int?)c.Booking.Listing!.Host!.UserId })
+            .FirstAsync(ct);
+        if (await gate.PartyConflictAsync(admin, parties.Guest, parties.Host, ct) is { } refusal)
+            return StatusCode(403, new { message = refusal });
 
         var error = await shield.DecideAsync(admin, id, req, ct);
         if (error is not null) return BadRequest(new { message = error });
@@ -244,7 +252,7 @@ public class ShieldController(
             before.Status, req.Approve ? "Settled" : "Rejected", req.Reason);
         await db.SaveChangesAsync(ct);
 
-        return Ok(await shield.OneAsync(id, null, ct));
+        return Ok(await shield.OneAsync(id, admin, ct));
     }
 
     /// <summary>docs/06 §5 — money chased down after the fund paid goes back to it.</summary>

@@ -426,7 +426,7 @@ public class ServiceTests
         // 03:00Z on a Wednesday is 10:00 on Wednesday in Đà Nẵng: inside hours.
         var tenLocal = new DateTime(2026, 9, 2, 3, 0, 0, DateTimeKind.Utc);
         Assert.Equal(10, ServiceRules.LocalTime(o, tenLocal).Hour);
-        Assert.True(ServiceRules.CanBook(Ask(o) with { StartsAt = tenLocal }).Ok);
+        Assert.True(ServiceRules.CanBook(Ask(o) with { StartsAt = tenLocal, Now = tenLocal.AddDays(-2) }).Ok);
 
         // 22:00Z is 05:00 the next morning there, which is before they open —
         // and it is a different weekday, which the day rule has to see too.
@@ -434,7 +434,7 @@ public class ServiceTests
         Assert.Equal(5, ServiceRules.LocalTime(o, beforeOpening).Hour);
         Assert.Equal(DayOfWeek.Thursday, ServiceRules.LocalTime(o, beforeOpening).DayOfWeek);
         Assert.Equal(ServiceRules.Refusal.OutsideHours,
-            ServiceRules.CanBook(Ask(o) with { StartsAt = beforeOpening }).Reason);
+            ServiceRules.CanBook(Ask(o) with { StartsAt = beforeOpening, Now = beforeOpening.AddDays(-2) }).Reason);
 
         // A provider who works Mondays only is shut at midday on their Sunday.
         // The hour is deliberately inside opening hours, so only the weekday rule
@@ -446,7 +446,7 @@ public class ServiceTests
         Assert.Equal(DayOfWeek.Sunday, there.DayOfWeek);
         Assert.Equal(12, there.Hour);
         Assert.Equal("Ngày này nhà cung cấp không nhận việc.",
-            ServiceRules.CanBook(Ask(o) with { StartsAt = sundayNoon }).Message);
+            ServiceRules.CanBook(Ask(o) with { StartsAt = sundayNoon, Now = sundayNoon.AddDays(-2) }).Message);
 
         // …and open at the same hour on the Monday after it.
         Assert.True(ServiceRules.CanBook(

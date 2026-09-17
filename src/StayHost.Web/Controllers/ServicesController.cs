@@ -11,7 +11,9 @@ namespace StayHost.Web.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/services")]
-public class ServicesController(AuthService auth, ServiceMarketService market) : ControllerBase
+public class ServicesController(
+    AuthService auth, ServiceMarketService market,
+    Services.Gateways.PspRouter psp, Services.Gateways.PspCheckout pspCheckout) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ServiceCardDto>>> Browse(
@@ -148,6 +150,30 @@ public class ServicesController(AuthService auth, ServiceMarketService market) :
         var (booking, error) = await market.BookAsync(user, id, req, ct);
         if (booking is null) return BadRequest(new { message = error });
 
-        return Ok(await market.BookingDtoAsync(booking.Id, ct));
+        var dto = await market.BookingDtoAsync(booking.Id, ct);
+
+        // docs/07 §13 — the job waits while the guest pays on the gateway's page.
+        var method = ProductCheckout.Normalise(req.PaymentMethod);
+        if (booking.Status == ServiceBookingStatus.AwaitingPayment && psp.IsLive(method))
+        {
+            var started = await pspCheckout.StartForAsync(
+                new PaymentSession
+                {
+                    ServiceBookingId = booking.Id, Method = method, Amount = booking.Total,
+                    AttemptKey = $"svc-{booking.Id}"
+                },
+                booking.Id, $"Staylio {booking.Reference}", user.Id,
+                Psp.ClientIp(HttpContext.Connection.RemoteIpAddress?.ToString()), ct);
+
+            if (!started.Ok || started.PayUrl is null)
+            {
+                await market.CancelAsync(user.Id, booking.Id, ct);
+                return BadRequest(new { message = started.Error, retryable = true });
+            }
+
+            return Ok(dto! with { GatewayRedirectUrl = started.PayUrl, GatewayOrderRef = started.OrderRef });
+        }
+
+        return Ok(dto);
     }
 }

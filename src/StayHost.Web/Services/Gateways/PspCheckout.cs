@@ -17,6 +17,8 @@ namespace StayHost.Web.Services.Gateways;
 public class PspCheckout(
     StayHostDbContext db, PspRouter router, PaymentGateway gateway,
     PaymentCompletion completion, DataSecrets secrets, GiftCardService giftCards,
+    ExperienceService experiences, ServiceMarketService market,
+    SplitBillService splits, BalanceCollector balances,
     ILogger<PspCheckout> log)
 {
     public sealed record Started(bool Ok, string? PayUrl = null, string? OrderRef = null, string? Error = null);
@@ -48,7 +50,7 @@ public class PspCheckout(
             return new Started(true, open.PayUrl, open.OrderRef);
 
         var sequence = await db.PaymentSessions.CountAsync(s => s.BookingId == booking.Id, ct);
-        var orderRef = Psp.OrderRef(booking.Id, now, sequence);
+        var orderRef = await NextOrderRefAsync(booking.Id, now, sequence, ct);
 
         var session = new PaymentSession
         {
@@ -135,7 +137,7 @@ public class PspCheckout(
             return new Started(true, open.PayUrl, open.OrderRef);
 
         var sequence = await db.PaymentSessions.CountAsync(s => s.GiftCardId == card.Id, ct);
-        var orderRef = Psp.OrderRef(card.Id, now, sequence);
+        var orderRef = await NextOrderRefAsync(card.Id, now, sequence, ct);
 
         var session = new PaymentSession
         {
@@ -171,6 +173,85 @@ public class PspCheckout(
         return new Started(true, start.PayUrl, orderRef);
     }
 
+    /// <summary>
+    /// The same trip out to a gateway for everything that is not a whole stay or
+    /// a gift card: an experience ticket, a service, the second half of a
+    /// part-paid stay, one person's share of a split bill (docs/07 §13).
+    ///
+    /// Until this existed all four were charged by the stand-in even on a site
+    /// whose every checkout row went to a licensed gateway — a ticket, a
+    /// service, a balance or a share confirmed with nobody having paid.
+    /// </summary>
+    /// <param name="draft">
+    /// The session to open: subject id(s), method, amount and attempt key. The
+    /// order reference and provider are filled in here.
+    /// </param>
+    public async Task<Started> StartForAsync(
+        PaymentSession draft, int subjectId, string description, int? userId,
+        string clientIp, CancellationToken ct)
+    {
+        var provider = router.For(draft.Method);
+        if (provider is null) return new Started(false, Error: "Cách thanh toán này chưa nối cổng nào.");
+        if (draft.Amount <= 0) return new Started(false, Error: "Không có khoản nào cần trả.");
+
+        var now = DateTime.UtcNow;
+
+        // Double-click guard, as for a stay — but only onto an order for the same
+        // method and amount, or a guest who switches from MoMo to a card would be
+        // sent back to MoMo.
+        var open = await db.PaymentSessions
+            .Where(s => s.AttemptKey == draft.AttemptKey && s.Status == PaymentSessionStatus.Pending)
+            .OrderByDescending(s => s.Id)
+            .FirstOrDefaultAsync(ct);
+
+        if (open is { PayUrl.Length: > 0 } && open.Method == draft.Method
+            && open.Amount == draft.Amount && open.CreatedAt.Add(PaymentSession.Window) > now)
+            return new Started(true, open.PayUrl, open.OrderRef);
+
+        var sequence = await db.PaymentSessions.CountAsync(s => s.AttemptKey == draft.AttemptKey, ct);
+        draft.OrderRef = await NextOrderRefAsync(subjectId, now, sequence, ct);
+        draft.Provider = provider.Key;
+        draft.Status = PaymentSessionStatus.Pending;
+        draft.CreatedAt = now;
+
+        db.PaymentSessions.Add(draft);
+        await db.SaveChangesAsync(ct);
+
+        var start = await provider.StartAsync(
+            new PspOrder(draft.OrderRef, draft.Amount, description, draft.Method, clientIp,
+                UserRef: userId is { } id ? Psp.AppUserRef(id) : null), ct);
+
+        if (!start.Ok || start.PayUrl is null)
+        {
+            draft.Status = PaymentSessionStatus.Failed;
+            draft.ResponseCode = "start";
+            draft.CompletedAt = now;
+            draft.SettledBy = "start";
+            await db.SaveChangesAsync(ct);
+            return new Started(false, Error: start.Error ?? Payments.Message(DeclineReason.GatewayError));
+        }
+
+        draft.PayUrl = start.PayUrl;
+        await db.SaveChangesAsync(ct);
+        return new Started(true, start.PayUrl, draft.OrderRef);
+    }
+
+    /// <summary>
+    /// An order reference nobody has used. The reference embeds the subject id,
+    /// and ids of different subjects overlap — gift card 5 and booking 5 opened
+    /// in the same second used to collide on the unique index.
+    /// </summary>
+    private async Task<string> NextOrderRefAsync(int subjectId, DateTime now, int sequence, CancellationToken ct)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            var candidate = Psp.OrderRef(subjectId, now, sequence + i);
+            if (!await db.PaymentSessions.AnyAsync(s => s.OrderRef == candidate, ct)) return candidate;
+        }
+
+        return Psp.OrderRef(subjectId, now.AddSeconds(1), sequence);
+    }
+
     public Task<PaymentSession?> FindAsync(string? orderRef, CancellationToken ct)
     {
         var raw = (orderRef ?? "").Trim();
@@ -184,6 +265,7 @@ public class PspCheckout(
             .Include(s => s.Booking!).ThenInclude(b => b.Payment)
             .Include(s => s.Booking!).ThenInclude(b => b.Listing)
             .Include(s => s.Booking!).ThenInclude(b => b.Events)
+            .Include(s => s.BillShare)
             .FirstOrDefaultAsync(s => s.OrderRef == raw, ct);
     }
 
@@ -269,6 +351,42 @@ public class PspCheckout(
             return PaymentSessionStatus.Paid;
         }
 
+        // docs/09 and docs/01 ĐP-06/ĐP-07 — the subjects that are not a whole
+        // stay. Each confirms through the same code its other paths run, and each
+        // answers false when the subject stopped waiting for this money while the
+        // guest was away (the seats lapsed, the split expired, the stay was
+        // cancelled). Money that arrived for nothing is sent straight back.
+        bool? applied = null;
+
+        if (session.ExperienceBookingId is { } xpId)
+        {
+            await db.SaveChangesAsync(ct);
+            applied = await experiences.ConfirmPaidAsync(xpId, ct);
+        }
+        else if (session.ServiceBookingId is { } svcId)
+        {
+            await db.SaveChangesAsync(ct);
+            applied = await market.ConfirmPaidAsync(svcId, ct);
+        }
+        else if (session.BillShareId is { } shareId)
+        {
+            await db.SaveChangesAsync(ct);
+            applied = await splits.SharePaidAsync(shareId, session.Amount, ct);
+        }
+        else if (session.IsBalance && session.BookingId is { } balanceOf)
+        {
+            await db.SaveChangesAsync(ct);
+            applied = await balances.CollectedAsync(balanceOf, session.Amount, $"psp:{settledBy}", ct);
+        }
+
+        if (applied is { } done)
+        {
+            if (!done) await ReturnOrphanAsync(session, ct);
+            log.LogInformation("Phiên {Ref} qua {Provider} đã thu {Amount} ({By}); áp vào chủ thể: {Done}.",
+                session.OrderRef, session.Provider, session.Amount, settledBy, done);
+            return PaymentSessionStatus.Paid;
+        }
+
         var claim = await db.PaymentAttempts.FirstOrDefaultAsync(a => a.Key == session.AttemptKey, ct);
         if (claim is null)
         {
@@ -322,6 +440,34 @@ public class PspCheckout(
             booking.Reference, session.Provider, session.Amount, settledBy);
 
         return PaymentSessionStatus.Paid;
+    }
+
+    /// <summary>
+    /// Money that arrived for something no longer waiting for it goes straight
+    /// back. Keeping it would hold a guest's money for a ticket they do not have;
+    /// the error line is what support reconciles by if the gateway refuses.
+    /// </summary>
+    private async Task ReturnOrphanAsync(PaymentSession session, CancellationToken ct)
+    {
+        if (router.ByKey(session.Provider) is not { } provider) return;
+
+        var result = await provider.RefundAsync(new PspRefund(
+            session.OrderRef, session.Amount, session.Amount, session.ProviderTxnId,
+            session.ProviderPaidAt, session.CreatedAt, $"Hoan tien {session.OrderRef}", "system"), ct);
+
+        session.RefundedAmount = session.Amount;
+        session.RefundTxnId = result.TxnId;
+        session.RefundCode = result.Code;
+        session.RefundedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        if (result.Outcome == Psp.RefundOutcome.Accepted)
+            log.LogWarning("Phiên {Ref} đã thu tiền cho một chủ thể không còn chờ; đã hoàn {Amount}.",
+                session.OrderRef, session.Amount);
+        else
+            log.LogError(
+                "Phiên {Ref} đã thu {Amount} cho một chủ thể không còn chờ và KHÔNG hoàn được ({Code}). Cần xử lý tay.",
+                session.OrderRef, session.Amount, result.Code);
     }
 
     /// <summary>
@@ -404,7 +550,7 @@ public class PspCheckout(
         // An attempt row counts refusals against one booking, so a gift card has
         // nothing to write here. Its protection is different and simpler: the
         // card stays AwaitingPayment, which CreditRules.CanRedeem refuses.
-        if (session.BookingId is not { } bookingId) return;
+        if (session.BookingId is not { } bookingId || session.IsBalance || session.BillShareId is not null) return;
 
         var claim = await db.PaymentAttempts.FirstOrDefaultAsync(a => a.Key == session.AttemptKey, ct);
 

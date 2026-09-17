@@ -32,7 +32,12 @@ public class PaymentMethodsController(
     public async Task<ActionResult<PaymentCatalogueDto>> Catalogue(
         [FromQuery] int? listingId, CancellationToken ct)
     {
+        // A row nobody can take money through is not offered: in production a
+        // method whose gateway keys are missing disappears instead of failing at
+        // the last step. The balance row is not a way to pay on its own and the
+        // checkout already reads it separately.
         var offered = PaymentMethods.Available()
+            .Where(m => m.Key == "balance" || psp.CanTake(m.Key))
             .Select(m => new PaymentMethodDto(m.Key, m.Group, m.Label, m.Hint, m.Savable,
                 psp.IsLive(m.Key), psp.KeepsCards(m.Key), psp.ProviderOf(m.Key)))
             .ToList();

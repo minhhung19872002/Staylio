@@ -36,7 +36,10 @@ export function AuthModal() {
           phone: looksLikePhone ? typed : (f.phone?.value?.trim() || null),
           password: f.password.value,
           fullName: f.fullName?.value?.trim() ?? '',
-          dateOfBirth: f.dateOfBirth?.value || null
+          dateOfBirth: f.dateOfBirth?.value || null,
+          // docs/01 TC-10 — the invitation email says "đăng ký bằng mã RF…",
+          // and without a field for it only an exact email match was rewarded.
+          referralCode: f.referralCode?.value?.trim() || null
         }
       : { email: typed, password: f.password.value };
 
@@ -86,6 +89,11 @@ export function AuthModal() {
           <p style={{ margin: '-4px 0 12px', fontSize: 12.5, color: 'var(--ink-muted)' }}>
             {t('Bạn cần đủ 18 tuổi để tạo tài khoản.')}
           </p>
+          <label className="form-field">
+            <span className="cap">{t('Mã giới thiệu')} <span style={{ fontWeight: 400 }}>{t('(nếu có)')}</span></span>
+            <input name="referralCode" autoComplete="off" placeholder="RF…"
+                   defaultValue={new URLSearchParams(window.location.search).get('ma-gioi-thieu') ?? ''} />
+          </label>
         </>}
 
         {state.authError && <div className="form-error">{state.authError}</div>}
@@ -200,6 +208,12 @@ function ResetModal() {
     set({ authBusy: true, authError: null });
     try {
       const user = await api.resetPassword({ token: state.resetToken, newPassword: f.newPassword.value });
+      // docs/01 TK-08 — the new password is set, but the code is still owed.
+      if (user?.challenge) {
+        set({ twoFactor: user, authMode: 'twoFactor', overlay: 'login', resetLink: null, resetToken: null });
+        toast('Đã đổi mật khẩu. Nhập mã xác thực để đăng nhập.');
+        return;
+      }
       set({ user, overlay: null, resetLink: null, resetToken: null });
       toast('Đã đổi mật khẩu và đăng nhập lại.');
     } catch (err) {
@@ -297,7 +311,13 @@ export function ProviderButtons() {
     if (!credential) return;                       // the window was closed
     setBusy(provider);
     try {
-      await api.externalSignIn(provider, credential);
+      const res = await api.externalSignIn(provider, credential);
+      // docs/01 TK-08 — the provider vouched for who this is; the account's own
+      // second factor is still owed before there is a session.
+      if (res?.challenge) {
+        set({ twoFactor: res, authMode: 'twoFactor' });
+        return;
+      }
       await loadMe();
       closeOverlay();
       toast(`Đã đăng nhập bằng ${label}.`);

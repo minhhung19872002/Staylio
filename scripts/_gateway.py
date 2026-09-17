@@ -143,6 +143,49 @@ def pay(call, op, booking_id, body=None, amount=None):
     return (st2, after) if st2 == 200 else (st, paid)
 
 
+def finish(call, op, st, dto, column, subject_id=None, amount=None):
+    """Carry a ticket, a service or a split share through VNPay the way `pay()`
+    carries a stay (docs/07 §13).
+
+    Until 17/09/2026 those three were charged by the stand-in even with VNPay
+    wired, so a suite got a confirmed ticket back from one request. Now the
+    response says where the guest would be sent, and this signs the IPN for it.
+    `column` names the payment_sessions column the subject hangs on
+    (ExperienceBookingId, ServiceBookingId, BillShareId). Returns (st, dto) with
+    `gatewaySettled` set to False when it could not finish.
+    """
+    if st not in (200, 201) or not isinstance(dto, dict) or not dto.get("gatewayRedirectUrl"):
+        return st, dto
+
+    redirect = dto["gatewayRedirectUrl"]
+    order_ref = dto.get("gatewayOrderRef")
+    _, secret = vnpay_keys()
+    if "vnpayment.vn" not in redirect or not secret or not order_ref:
+        return st, dict(dto, gatewaySettled=False,
+                        gatewayNote="Không ký thay được cổng này: %s" % redirect[:60])
+
+    due = amount if amount is not None else dto.get("total") or dto.get("amount")
+    settled, note = settle(call, op, order_ref, due)
+    if not settled:
+        return st, dict(dto, gatewaySettled=False, gatewayNote=note)
+
+    # Same reason as in pay(): VNPay never saw this order, so a later refund must
+    # not be sent to them.
+    sid = subject_id if subject_id is not None else dto.get("id")
+    _forget_by(column, sid)
+    return st, dict(dto, gatewaySettled=True, status="Confirmed")
+
+
+def _forget_by(column, subject_id):
+    try:
+        subprocess.run(
+            ["docker", "exec", "stayhost-db", "psql", "-U", "stayhost", "-d", "stayhost", "-c",
+             'delete from payment_sessions where "%s" = %s' % (column, int(subject_id))],
+            capture_output=True, text=True, timeout=30)
+    except Exception:
+        pass
+
+
 def _forget_session(booking_id):
     try:
         subprocess.run(

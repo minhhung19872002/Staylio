@@ -92,7 +92,7 @@ function CaseCard({ kase: c, onDone }) {
   return (
     <article className="host-booking" style={{ alignItems: 'flex-start' }}>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <h3>{c.kindLabel} · {c.listingTitle}</h3>
+        <h3>{t(c.kindLabel)} · {c.listingTitle}</h3>
         <div className="meta">
           {t('Hồ sơ')} {c.reference} · {t('đơn')} {c.bookingReference} · {t('mở bởi')} {c.openedByName} ({c.openedByHost ? t('chủ nhà') : t('khách')})
         </div>
@@ -126,7 +126,7 @@ function CaseCard({ kase: c, onDone }) {
         )}
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-          <span className={`badge ${c.statusBadge}`}>{c.statusLabel}</span>
+          <span className={`badge ${c.statusBadge}`}>{t(c.statusLabel)}</span>
           {c.status === 'AwaitingResponse' && (
             <span className="badge pending">{t('Hạn trả lời')} {dateTime(c.responseDueAt)}</span>
           )}

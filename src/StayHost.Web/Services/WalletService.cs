@@ -25,6 +25,29 @@ public class WalletService(StayHostDbContext db, NotificationService notificatio
     }
 
     /// <summary>
+    /// What the guest can still commit to a new booking: the balance, less what
+    /// other unpaid bookings have already promised to spend.
+    ///
+    /// Balance is only taken off the wallet when a booking is confirmed, so two
+    /// bookings held side by side each saw the whole of it — pay for both and the
+    /// wallet went negative, with the platform covering the difference.
+    /// </summary>
+    public async Task<decimal> SpendableAsync(int userId, int? exceptBookingId, CancellationToken ct)
+    {
+        var balance = await BalanceAsync(userId, ct);
+        var now = DateTime.UtcNow;
+
+        var promised = await db.Bookings
+            .Where(b => b.GuestUserId == userId && b.CreditUsed > 0 && b.Id != exceptBookingId
+                        && (b.Status == BookingStatus.PendingHostApproval
+                            || (b.Status == BookingStatus.PendingPayment
+                                && (b.HoldExpiresAt == null || b.HoldExpiresAt > now))))
+            .SumAsync(b => (decimal?)b.CreditUsed, ct) ?? 0m;
+
+        return Math.Max(0m, balance - promised);
+    }
+
+    /// <summary>
     /// Adds a movement without saving; the caller commits it with the rest. A
     /// positive amount is a grant, so it picks up whatever lifetime its kind
     /// carries under docs/07 §16 — twelve months for the promotional kinds, none
@@ -101,11 +124,23 @@ public class WalletService(StayHostDbContext db, NotificationService notificatio
         if (!CreditRules.CanRedeem(card)) return (0m, $"Thẻ này {CreditRules.StatusLabel(card.Status).ToLower()}.");
 
         var amount = card.Remaining;
+        var wasStatus = card.Status;
+        var now = DateTime.UtcNow;
 
-        card.Remaining = 0;
-        card.Status = GiftCardStatus.Redeemed;
-        card.RedeemedByUserId = user.Id;
-        card.RedeemedAt = DateTime.UtcNow;
+        // One statement decides who gets the card. Reading it, then saving, let
+        // two requests sent together both see it active and both credit it —
+        // a 20-million card became 40 million of balance.
+        var claimed = await db.GiftCards
+            .Where(c => c.Id == card.Id && c.Status == wasStatus && c.Remaining == amount)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(c => c.Remaining, 0m)
+                .SetProperty(c => c.Status, GiftCardStatus.Redeemed)
+                .SetProperty(c => c.RedeemedByUserId, user.Id)
+                .SetProperty(c => c.RedeemedAt, now), ct);
+
+        if (claimed == 0) return (0m, "Thẻ này vừa được đổi.");
+
+        db.Entry(card).State = EntityState.Detached;
 
         Add(user.Id, amount, CreditReason.GiftCard, $"Đổi thẻ {card.Code}");
         db.LedgerEntries.AddRange(Ledger.RedeemGiftCard(amount, card.Code, DateTime.UtcNow));

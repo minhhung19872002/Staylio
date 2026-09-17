@@ -41,6 +41,25 @@ public static class Scarcity
     public static bool IsRareFind(Reading r) =>
         r.TotalNights >= MinNightsForSignal && r.FreeShare < RareBelowFreeShare;
 
+    /// <summary>
+    /// The reading for the window starting <paramref name="today"/>. Nights the
+    /// host closed themselves are not demand, so they leave the window rather
+    /// than count as taken: a place shut for a month of repairs was "hiếm có".
+    /// Nights sold elsewhere (an imported calendar) are demand and stay taken.
+    /// </summary>
+    public static Reading ReadingOf(
+        IEnumerable<DateOnly> taken, IEnumerable<DateOnly> closedByHost, DateOnly today)
+    {
+        var horizon = today.AddDays(WindowDays);
+        bool Inside(DateOnly d) => d >= today && d < horizon;
+
+        var closed = closedByHost.Where(Inside).ToHashSet();
+        var busy = taken.Where(Inside).Where(d => !closed.Contains(d)).ToHashSet();
+        var total = WindowDays - closed.Count;
+
+        return new Reading(total - busy.Count, total);
+    }
+
     /*
      * There was a ShouldWarnLowAvailability(before, after) here, saying the
      * notice is only worth sending on the crossing. That is the right rule, but

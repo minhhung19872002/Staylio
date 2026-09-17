@@ -142,6 +142,19 @@ public class AvailabilityTests
         Assert.Contains("5 đêm", r.Message);
     }
 
+    [Fact]
+    public void Step6_a_per_day_minimum_can_also_be_lower()
+    {
+        // "ưu tiên giá trị riêng đó" — a host opening a single night on a place
+        // that normally needs three is using the rule, not breaking it.
+        var listing = MakeListing(l => l.MinNights = 3);
+        var checkIn = Today.AddDays(30);
+        var minNights = new Dictionary<DateOnly, int> { [checkIn] = 1 };
+
+        Assert.True(Check(listing, nights: 1, minNights: minNights).Ok);
+        Assert.Equal(Availability.Reason.NightCount, Check(listing, nights: 1).Reason);
+    }
+
     /* -------------------------------------------------------------- step 7 */
 
     [Fact]
@@ -213,6 +226,21 @@ public class AvailabilityTests
 
         var farEnough = new[] { new Availability.Occupied(checkIn.AddDays(-5), checkIn.AddDays(-2), false) };
         Assert.True(Check(listing, occupied: farEnough).Ok);
+    }
+
+    [Fact]
+    public void Step9_back_to_back_stays_have_no_turnover_at_all()
+    {
+        var listing = MakeListing(l => l.TurnoverDays = 2);
+        var checkIn = Today.AddDays(30);
+
+        // The previous guest leaves the very day this one arrives, and the next
+        // one arrives the day this one leaves: zero days either side.
+        var before = new[] { new Availability.Occupied(checkIn.AddDays(-3), checkIn, false) };
+        Assert.Equal(Availability.Reason.TurnoverTime, Check(listing, occupied: before).Reason);
+
+        var after = new[] { new Availability.Occupied(checkIn.AddDays(3), checkIn.AddDays(6), false) };
+        Assert.Equal(Availability.Reason.TurnoverTime, Check(listing, occupied: after).Reason);
     }
 
     /* ------------------------------------------------------------- ordering */

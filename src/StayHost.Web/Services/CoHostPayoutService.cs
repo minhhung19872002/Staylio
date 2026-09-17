@@ -181,7 +181,7 @@ public class CoHostPayoutService(
 
                 await notifications.QueueWithEmailAsync(payee.User, NotificationKind.PayoutSent,
                     "Chưa chuyển được phần chia cho bạn",
-                    accounts.CanStore ? missing : PayoutAccounts.NoKeyNotice, "/hosting/earnings", ct);
+                    accounts.CanStore ? missing : PayoutAccounts.NoKeyNotice, "/hosting?tab=earnings", ct);
 
                 log.LogWarning("Người đồng quản lý {HostId}: {Count} phần chia chờ tài khoản nhận tiền — {Reason}",
                     payee.Id, rows.Count, missing);
@@ -242,7 +242,7 @@ public class CoHostPayoutService(
             await notifications.QueueWithEmailAsync(payee.User, NotificationKind.PayoutSent,
                 "Đã lên lệnh chuyển phần chia cho bạn",
                 PayoutFiles.QueuedNotice(deduction.Transfer, what, reference) + note,
-                "/hosting/earnings", ct);
+                "/hosting?tab=earnings", ct);
         }
 
         if (paid + held > 0)
@@ -397,7 +397,7 @@ public class CoHostPayoutService(
 
                         await notifications.QueueWithEmailAsync(row.PayeeHost.User, NotificationKind.PayoutSent,
                             "Phần chia của một đơn đã hoàn tiền",
-                            CoHostPayouts.ClawbackNotice(over, booking.Reference), "/hosting/earnings", ct);
+                            CoHostPayouts.ClawbackNotice(over, booking.Reference), "/hosting?tab=earnings", ct);
                     }
 
                     row.ClawedBack += over;

@@ -23,6 +23,17 @@ public class PspSettings
     /// </summary>
     public string PublicUrl { get; set; } = "";
 
+    /// <summary>
+    /// Whether the stand-in <see cref="StayHost.Web.Services.PaymentGateway"/> may
+    /// take a payment for a method no gateway serves.
+    ///
+    /// Null means "not in production": a demo build keeps its checkout, while a
+    /// live site whose MoMo keys went missing refuses MoMo instead of confirming
+    /// every MoMo booking for free — which is what the stand-in does, since it
+    /// says yes to any card but the declining test one.
+    /// </summary>
+    public bool? AllowStandIn { get; set; }
+
     public VnPayOptions Vnpay { get; set; } = new();
     public OnePayOptions Onepay { get; set; } = new();
     public MoMoOptions Momo { get; set; } = new();

@@ -125,6 +125,8 @@ builder.Services.AddScoped<AdminAudit>();
 builder.Services.AddScoped<PaymentGateway>();
 builder.Services.AddScoped<BalanceCollector>();
 builder.Services.AddScoped<RiskWatch>();
+builder.Services.AddScoped<SanctionExpiry>();
+builder.Services.AddScoped<StayReminderSweeper>();
 builder.Services.AddScoped<SplitBillService>();
 builder.Services.AddScoped<ExperienceService>();
 builder.Services.AddScoped<ServiceMarketService>();
@@ -167,7 +169,9 @@ builder.Services.AddHttpClient("psp", c =>
     c.DefaultRequestHeaders.UserAgent.ParseAdd("Staylio/1.0 (+https://staylio.vn)");
 });
 
-builder.Services.AddHttpClient("ical");
+// A host-typed address: only the public internet, checked at connect time.
+builder.Services.AddHttpClient("ical")
+    .ConfigurePrimaryHttpMessageHandler(StayHost.Web.Infrastructure.PublicNetworkOnly.Handler);
 builder.Services.AddHostedService<CalendarSyncWorker>();
 builder.Services.AddHostedService<BookingLifecycleWorker>();
 builder.Services.AddScoped<AuthService>();
@@ -282,11 +286,40 @@ await using (var scope = app.Services.CreateAsyncScope())
     }
 }
 
+// TLS ends at the shared Caddy container, so every request reaches Kestrel as
+// plain HTTP — and until this line the app believed it. UseHsts below never
+// fired (it only answers HTTPS requests), the sign-in cookie went out without
+// Secure, and links built from Request.Scheme (the iCal export a host pastes
+// into Airbnb, the split-bill invitation) said http://. Kestrel is published on
+// host loopback and the compose network only, so the proxy is the one thing
+// that can set these headers; Caddy also replaces any X-Forwarded-For a client
+// sends rather than appending to it.
+var forwarded = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                     | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
+};
+forwarded.KnownNetworks.Clear();
+forwarded.KnownProxies.Clear();
+app.UseForwardedHeaders(forwarded);
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/error");
     app.UseHsts();
 }
+
+// Nothing here is meant to be framed by another site: the booking and payment
+// buttons are exactly what a clickjacking page would overlay. nosniff stops an
+// uploaded photo from being run as a script by an old browser.
+app.Use(async (ctx, next) =>
+{
+    var headers = ctx.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "SAMEORIGIN";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    await next();
+});
 
 var presence = app.Services.GetRequiredService<PresenceTracker>();
 

@@ -574,7 +574,7 @@ function StepTrip({ q }) {
     <section className="modal-section">
       <h3>{t('Chính sách huỷ')}</h3>
       <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--ink-body)', margin: '10px 0 0' }}>
-        <b>{q.cancellationTier}</b> — {q.cancellationSummary}
+        <b>{t(q.cancellationTier)}</b> — {t(q.cancellationSummary)}
       </p>
     </section>
   </>;
@@ -809,7 +809,7 @@ function StepReview({ q }) {
     <section className="modal-section">
       <h3>{t('Chính sách huỷ')}</h3>
       <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--ink-body)', margin: '10px 0 0' }}>
-        <b>{q.cancellationTier}</b> — {q.cancellationSummary}
+        <b>{t(q.cancellationTier)}</b> — {t(q.cancellationSummary)}
       </p>
     </section>
   </>;

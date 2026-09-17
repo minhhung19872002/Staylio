@@ -1353,6 +1353,96 @@ hai lỗi: bỏ `recipient.Language` khỏi Compose → kịch bản 3 đỏ; b�
 
 **203 vẫn là 203** — vẫn là `TK-09`, nửa còn nợ của §9.17.
 
+### 9.19. Soát sâu toàn bộ: tiền không ai trả, cửa không cần chìa (17/09/2026)
+
+Bốn lượt soát song song (phân quyền, luồng tiền, luật nghiệp vụ, hợp đồng
+frontend↔API) rồi kiểm từng phát hiện trong mã và trên app đang chạy. Bộ nghiệm
+thu mới `scripts/audit0917_acceptance.py` chạy được cả local lẫn prod (prod chỉ
+kiểm qua HTTP, dọn mọi thứ nó tạo).
+
+**Nặng nhất — bản giả lập vẫn "thu tiền" khi cổng thật đang bật.** Bản giả lập
+nói "có" với mọi thẻ trừ `0000`, và năm đường không hỏi `PspRouter`:
+- `/pay` nhận **tên phương thức bất kỳ** (`applepay`, `xyz`, `balance`…) → đơn
+  xác nhận không ai trả tiền, chủ nhà được lên lịch chuyển tiền.
+- Vé trải nghiệm, đơn dịch vụ, từng phần chia hoá đơn, và **phần còn lại của
+  đơn đặt cọc** đều thu bằng bản giả lập.
+
+Sửa ở hai tầng: `PspRouter.StandInMay` (chỉ 4 hàng checkout, không bao giờ cho
+phương thức đã có cổng, và **tắt hẳn ở Production** trừ khi `Psp:AllowStandIn`)
+chặn ngay trong `PaymentGateway.Charge`; còn bốn đường kia giờ **đi ra cổng thật**
+qua `PspCheckout.StartForAsync` — `payment_sessions` có thêm
+`ExperienceBookingId`/`ServiceBookingId`/`BillShareId`/`IsBalance` (migration
+`PaymentSessionSubjects`). Tiền về cho một chủ thể không còn chờ (vé đã hết hạn,
+lượt chia đã đóng) được **hoàn ngay**. Đối soát ngày đếm cả các phiên không có
+dòng `payment_attempts` — trước đó thẻ quà tặng đã lệch mà không ai thấy.
+
+**Hoàn tiền.** `RefundGateway.SendForAsync` trải khoản hoàn trên **mọi** phiên
+đã trả của một chủ thể (cọc + phần còn lại, từng phần chia), mỗi phiên không vượt
+số còn hoàn được; chỉ phần thẻ không nhận mới thành số dư (trước là tất cả).
+Hoàn vé/dịch vụ trước đây chỉ ghi sổ, không gọi cổng nào. Hoàn tay của quản trị
+cũng vậy, lại còn trừ `CreditUsed` hai lần và không tạo `CreditEntry`. Huỷ đơn
+không hoàn → khách vẫn được trả **toàn bộ** số dư đã dùng (ví lệch sổ).
+
+**Chuyển tiền cho chủ nhà hai lần.** Vòng quét lấy lại đơn đang `Sent` (đã nằm
+trong file ngân hàng) khi bậc thử lại 1 ngày qua → hôm sau vào file thứ hai.
+Khoá tài khoản rồi khôi phục cũng đẩy `Sent` về `Scheduled`. Đã loại `Sent` ở cả
+hai; `payout_acceptance.py` có kịch bản mới — đỏ trên bản cũ
+(`PO-…-7` → `PO-…-7-2`), xanh trên bản mới.
+
+**Đổi lịch dịch tiền mà không thu, không hoàn.** Chủ nhà chấp nhận thì
+`HostPayout` tăng theo số đêm mới mà khách không trả thêm. Giờ phần tăng thành
+**khoản khách còn nợ**, thu bằng đúng cơ chế trả nốt (72 giờ); phần giảm được
+hoàn thật (cấn trừ nợ trước). Đơn chưa thu tiền và đơn trả tại nơi ở không ghi sổ.
+Form đổi lịch cũng từng làm rơi thú cưng/trẻ em/em bé.
+
+**Tiêu một số dư hai lần / đổi thẻ quà tặng hai lần / mã giảm giá vượt lượt** —
+ba cuộc đua đều đã khoá (`WalletService.SpendableAsync`, `ExecuteUpdate` có điều
+kiện, `CouponService.WithinLimitsAsync` xếp hạng theo id).
+
+**Phân quyền.**
+- Hồ sơ Shield đọc được của **bất kỳ ai** theo id.
+- Lời mời đồng quản lý nhận được bằng email **chưa xác thực** — và
+  `send-verification` **trả thẳng mã xác thực trong response** (không gửi thư nào).
+- Đặt lại mật khẩu và đăng nhập Google/Facebook **bỏ qua 2FA**, kể cả admin.
+- Bốn quyết định tiền của admin (Shield, Giải quyết, Khớp giá, Bất khả kháng)
+  không kiểm xung đột lợi ích.
+- Trình duyệt dùng chung đọc/huỷ được đơn của tài khoản đã đăng xuất.
+- Tin nháp lách hàng chờ duyệt; SSRF qua địa chỉ iCal (giờ chặn ở bước kết nối);
+  co-host chỉ có quyền Lịch vẫn đổi được giá; đổi số điện thoại giữ cờ đã xác
+  minh; mã OTP ghi ra log production.
+- **Cookie đăng nhập trên prod thiếu `Secure`** và HSTS không bao giờ ra, vì TLS
+  dừng ở Caddy mà app không đọc `X-Forwarded-Proto`. Thêm header chống nhúng
+  khung / nosniff / Referrer-Policy.
+
+**Quy tắc đã viết mà không chạy.**
+- Tạm khoá/hạn chế có thời hạn **không bao giờ tự hết** (`SanctionExpiry`).
+- Nhắc 7 ngày / 24 giờ / sáng trả phòng (`docs/03 §11`) **không có producer**
+  (`StayReminderSweeper`); nhắc đánh giá gửi 2 lần mỗi đợt và không nhắc chủ nhà;
+  không ai được báo khi đánh giá công khai.
+- Chủ nhà tự huỷ: ngày **mở lại ngay**, danh hiệu chờ tới quý, huỷ lần 3 không
+  ẩn tin. Từ chối yêu cầu bị đếm như tự huỷ. Siêu chủ nhà đếm cả đơn tương lai.
+  *Khoản phạt tăng dần: đặc tả không có số — chờ khách chốt.*
+- Trải nghiệm/dịch vụ: mốc đóng đặt 24 giờ (TN-B, DV-B) — dịch vụ là 4 giờ,
+  trải nghiệm không có; dịch vụ hết hạn chứng chỉ và trải nghiệm bị từ chối vẫn
+  đặt được qua link cũ; người dẫn huỷ suất không tặng 10% (TN-D); giữ chỗ 10
+  phút không màn hình nào gọi.
+- Khoá người vừa là chủ nhà vừa là khách bỏ sót chuyến họ đặt; bản xem trước
+  khoá tài khoản tính khác lệnh khoá thật.
+- Đơn nối liền lọt qua thời gian dọn dẹp; sửa riêng số đêm tối thiểu xoá giá
+  theo ngày; mức tối thiểu riêng không hạ được; "Hiếm có" đếm cả ngày chủ nhà tự
+  khoá; cửa sổ trả lời đánh giá tính từ lúc viết.
+
+**Giao diện.** Mã giới thiệu không có ô nhập; bỏ tim trong danh sách yêu thích
+không đổi; khách thấy "Mẫu trả lời"; cache trang chủ bỏ qua thú cưng; nút bất khả
+kháng cho quản trị; liên kết `/hosting/earnings` trong thư chuyển tiền là **404
+trên prod** và trang chủ nhà không đọc `?tab=`; nhãn trợ năng, nhãn Shield/Giải
+quyết/Xử lý, chính sách huỷ, câu ngày linh hoạt giờ đi qua từ điển; chữ
+"docs/0x" không còn lọt ra màn hình khách và chủ nhà.
+
+**Cố ý để lại:** khoản phạt chủ nhà huỷ (chưa có số), phạt người dẫn trải nghiệm
+huỷ suất (chưa có số), chế độ "chờ nhà cung cấp xác nhận" của dịch vụ
+(`docs/09 §3.5`), 3 hạng mục khi chủ nhà chấm khách (`docs/03 §7`).
+
 ---
 
 ## Kiểm chứng

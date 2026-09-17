@@ -686,7 +686,8 @@ public class CatalogService(StayHostDbContext db)
             {
                 HostId = g.Key,
                 Total = g.Count(),
-                Cancelled = g.Count(bk => bk.CancelledBy == CancelledBy.Host)
+                Cancelled = g.Count(bk => bk.Status == BookingStatus.CancelledByHost
+                                          && bk.CancelledBy == CancelledBy.Host)
             })
             .ToListAsync(ct);
 
@@ -1087,8 +1088,14 @@ public class CatalogService(StayHostDbContext db)
 
         var hostBlocks = await db.CalendarBlocks
             .Where(b => b.ListingId == listing.Id && b.To >= today)
-            .Select(b => new { From = b.From, To = b.To })
+            .Select(b => new { From = b.From, To = b.To, Imported = b.FeedId != null })
             .ToListAsync(ct);
+
+        var closedByHost = hostBlocks.Where(b => !b.Imported)
+            .SelectMany(b => Enumerable
+                .Range(0, Math.Max(0, b.To.DayNumber - b.From.DayNumber + 1))
+                .Select(offset => b.From.AddDays(offset)))
+            .ToList();
 
         // A stay blocks every night from check-in up to (but excluding) check-out;
         // a host block covers both of its endpoints.
@@ -1138,7 +1145,7 @@ public class CatalogService(StayHostDbContext db)
             // docs/01 TĐ-22 — the host's own recommendations, grouped for reading.
             GuidebookGroups(listing),
             // docs/01 TĐ-23 — "Hiếm có", from the same calendar the picker greys out.
-            RareFind(unavailable, today),
+            RareFind(unavailable, closedByHost, today),
             themes);
     }
 
@@ -1184,11 +1191,10 @@ public class CatalogService(StayHostDbContext db)
     /// unavailable-date list the calendar renders, so the badge and the greyed
     /// days can never tell a guest two different stories.
     /// </summary>
-    private static RareFindDto? RareFind(IReadOnlyCollection<DateOnly> unavailable, DateOnly today)
+    private static RareFindDto? RareFind(
+        IReadOnlyCollection<DateOnly> unavailable, IReadOnlyCollection<DateOnly> closedByHost, DateOnly today)
     {
-        var horizon = today.AddDays(Scarcity.WindowDays);
-        var taken = unavailable.Count(d => d >= today && d < horizon);
-        var reading = new Scarcity.Reading(Scarcity.WindowDays - taken, Scarcity.WindowDays);
+        var reading = Scarcity.ReadingOf(unavailable, closedByHost, today);
 
         return Scarcity.IsRareFind(reading)
             ? new RareFindDto(

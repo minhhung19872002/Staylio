@@ -54,6 +54,30 @@ public class CouponService(StayHostDbContext db)
     }
 
     /// <summary>
+    /// docs/01 TC-09 — whether this booking's redemption, once written, is still
+    /// inside the campaign's limits when every other request is counted too.
+    ///
+    /// Evaluating and then writing let two requests sent together both count the
+    /// same "0 used" and both take a once-per-guest code. Ranking by row id makes
+    /// the earliest write the winner, so exactly the late ones are turned away.
+    /// </summary>
+    public async Task<bool> WithinLimitsAsync(int couponId, int bookingId, CancellationToken ct)
+    {
+        var coupon = await db.Coupons.AsNoTracking().FirstOrDefaultAsync(c => c.Id == couponId, ct);
+        var mine = await db.CouponRedemptions.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.CouponId == couponId && r.BookingId == bookingId && !r.Voided, ct);
+        if (coupon is null || mine is null) return true;
+
+        var ahead = db.CouponRedemptions.Where(r => r.CouponId == couponId && !r.Voided && r.Id <= mine.Id);
+
+        if (coupon.MaxRedemptions is { } max && await ahead.CountAsync(ct) > max) return false;
+        if (coupon.MaxPerUser is { } perUser
+            && await ahead.CountAsync(r => r.UserId == mine.UserId, ct) > perUser) return false;
+
+        return true;
+    }
+
+    /// <summary>
     /// docs/01 TC-09 — a booking that fell through gives its redemption back, so a
     /// limited campaign is not spent on stays that never happened. The row stays
     /// for the record and is marked rather than deleted.

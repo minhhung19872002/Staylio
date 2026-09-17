@@ -109,16 +109,21 @@ public class PriceMatchController(
     /// </summary>
     [HttpPost("admin/price-matches/{id:int}/{decision}")]
     public async Task<IActionResult> Decide(
-        int id, string decision, [FromBody] ResolveRiskFlagRequest? req, CancellationToken ct)
+        int id, string decision, [FromBody] ResolveRiskFlagRequest? req, [FromServices] AdminGate gate,
+        CancellationToken ct)
     {
         var admin = await audit.RequireAsync(AdminScope.Arbitration, ct);
         if (admin is null) return StatusCode(403, new { message = "Bạn không có quyền phân xử." });
 
         var claim = await db.PriceMatchClaims
-            .Include(c => c.Booking)
+            .Include(c => c.Booking!).ThenInclude(b => b.Listing!).ThenInclude(l => l.Host)
             .Include(c => c.GuestUser)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
         if (claim is null) return NotFound();
+
+        if (await gate.PartyConflictAsync(
+                admin, claim.GuestUserId, claim.Booking?.Listing?.Host?.UserId, ct) is { } refusal)
+            return StatusCode(403, new { message = refusal });
         if (claim.Status != PriceMatchStatus.Submitted)
             return BadRequest(new { message = "Yêu cầu này đã được xử lý." });
 

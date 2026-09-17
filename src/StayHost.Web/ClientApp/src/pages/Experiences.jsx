@@ -495,10 +495,27 @@ export function ExperienceCheckout() {
     api.experience(slug).then(setX).catch(() => setMissing(true));
   }, [slug]);
 
+  // docs/09 §2.7 (MR-E-06) — "trừ chỗ ngay khi bắt đầu thanh toán, giữ 10
+  // phút". The hold endpoint existed and nothing called it, so two guests on
+  // this page could both reach "pay" for the last seat. The quote is read
+  // first: asked after the hold, it would count this guest's own seats as
+  // taken and grey the button out.
+  const [hold, setHold] = useState(null);
   useEffect(() => {
     if (!slotId) return;
-    api.experienceQuote(slotId, seats, priv).then(setQuote).catch(e => toast(e.message));
-  }, [slotId, seats, priv]);
+    let alive = true;
+    api.experienceQuote(slotId, seats, priv)
+      .then(q => {
+        if (!alive) return;
+        setQuote(q);
+        if (!q.canBook || !state.user) return;
+        return api.holdExperience(slotId, { seats, private: priv })
+          .then(h => { if (alive) setHold(h); })
+          .catch(() => { if (alive) setHold(null); });
+      })
+      .catch(e => toast(e.message));
+    return () => { alive = false; };
+  }, [slotId, seats, priv, state.user]);
 
   const slot = x?.slots.find(s => s.id === slotId);
 
@@ -525,11 +542,14 @@ export function ExperienceCheckout() {
         seats,
         private: priv,
         paymentMethod: state.payMethod ?? 'card',
-        cardLast4: state.payCardLast4 ?? (typed.length >= 4 ? typed.slice(-4) : null)
+        cardLast4: state.payCardLast4 ?? (typed.length >= 4 ? typed.slice(-4) : null),
+        holdId: hold?.holdId ?? null
       });
       // docs/07 §2.3 — a transfer books nothing yet: the seats are held and the
       // guest goes to the QR. Saying "đã đặt" here would be a lie until the
       // money is found on a statement.
+      // docs/07 §13 — a licensed gateway takes the money on its own page.
+      if (b.gatewayRedirectUrl) { window.location.assign(b.gatewayRedirectUrl); return; }
       if (b.status === 'AwaitingPayment') { navigate(`/chuyen-khoan/${b.reference}`); return; }
       toast(`${t('Đã đặt — mã')} ${b.reference}`);
       navigate('/experiences/bookings');

@@ -3,6 +3,7 @@ import { useStore } from '../lib/useStore.js';
 import { pickDate, shiftCalendar, calendarAnchor, set, normaliseDates } from '../lib/store.js';
 import { api } from '../lib/api.js';
 import { isoOf, parseIso, todayIso, shortMoney, longDate, dateFormat } from '../lib/format.js';
+import { t } from '../lib/i18n.js';
 
 /**
  * Month and weekday names come from Intl in the reader's language rather than a
@@ -111,10 +112,10 @@ function Month({ monthStart, isFirst, isLast, state, nights }) {
           `visibility` rather than `display` so the name stays centred. */}
       <div className="cal-head">
         <button type="button" className="round-btn cal-prev" onClick={() => shiftCalendar(-1)}
-                aria-label="Tháng trước" tabIndex={isFirst ? 0 : -1}>‹</button>
+                aria-label={t('Tháng trước')} tabIndex={isFirst ? 0 : -1}>‹</button>
         <b>{MONTH_NAME(month)} {year}</b>
         <button type="button" className="round-btn cal-next" onClick={() => shiftCalendar(1)}
-                aria-label="Tháng sau" tabIndex={isLast ? 0 : -1}>›</button>
+                aria-label={t('Tháng sau')} tabIndex={isLast ? 0 : -1}>›</button>
       </div>
       <div className="cal-grid" role="grid">
         {DOW_NAMES().map((d, i) => <span className="cal-dow" key={i}>{d}</span>)}

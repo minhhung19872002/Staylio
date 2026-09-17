@@ -203,7 +203,7 @@ public class BookingService(StayHostDbContext db)
             nights.Add(new CalendarNightDto(
                 d, rate.Rate, rate.Source,
                 d >= today && !taken.Contains(d),
-                Math.Max(listing.MinNights, perDayMin)));
+                perDayMin > 0 ? perDayMin : listing.MinNights));
         }
 
         return new ListingCalendarDto(listingId, from, to, nights, NextOpenings(nights, listing.MinNights));
@@ -511,6 +511,14 @@ public class BookingLifecycleWorker(IServiceProvider services, ILogger<BookingLi
                 // docs/01 YT-08 — the other half: a saved place running out of nights.
                 var scarcity = scope.ServiceProvider.GetRequiredService<ScarcitySweeper>();
                 await scarcity.SweepAsync(stoppingToken);
+
+                // docs/03 §11 — 7 days / 24 hours before arrival, and check-out morning.
+                var reminders = scope.ServiceProvider.GetRequiredService<StayReminderSweeper>();
+                await reminders.SweepAsync(stoppingToken);
+
+                // docs/08 §5.2–§5.3 — sanctions whose time is up end by themselves.
+                var sanctions = scope.ServiceProvider.GetRequiredService<SanctionExpiry>();
+                await sanctions.SweepAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

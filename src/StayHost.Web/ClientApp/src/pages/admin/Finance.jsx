@@ -270,6 +270,21 @@ export function TransactionsPanel() {
     finally { setBusy(false); }
   };
 
+  // docs/03 §4 and docs/06 §8 — the endpoint existed with nothing to press, so
+  // the whole force-majeure branch, and the host's Q-A behind it, never ran.
+  const forceMajeure = async tx => {
+    const reason = prompt(t('Sự kiện bất khả kháng (bão, lũ, lệnh phong toả…) — tối thiểu 8 ký tự'));
+    if (!reason) return;
+    if (!confirm(`${t('Huỷ đơn do bất khả kháng: khách được hoàn toàn bộ, chủ nhà nhận hỗ trợ từ quỹ. Đơn')} ${tx.bookingReference}?`)) return;
+    setBusy(true);
+    try {
+      await api.adminForceMajeure(tx.bookingId, reason);
+      await load(q);
+      toast('Đã huỷ đơn do bất khả kháng.');
+    } catch (err) { toast(err.message); }
+    finally { setBusy(false); }
+  };
+
   const adjust = async (t, release) => {
     const reason = prompt(release ? 'Lý do mở lại khoản chuyển' : 'Lý do tạm giữ khoản chuyển');
     if (!reason) return;
@@ -324,6 +339,8 @@ export function TransactionsPanel() {
                 </td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <button className="link-btn" disabled={busy} onClick={() => refund(tx)}>{t('Hoàn tiền')}</button>
+                  <button className="link-btn" style={{ marginLeft: 8 }} disabled={busy}
+                          onClick={() => forceMajeure(tx)}>{t('Bất khả kháng')}</button>
                   {tx.payoutStatus === 'OnHold' && (
                     <button className="link-btn" style={{ marginLeft: 8 }} disabled={busy}
                             onClick={() => adjust(tx, true)}>{t('Mở lại')}</button>

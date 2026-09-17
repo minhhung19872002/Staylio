@@ -253,11 +253,23 @@ public class PaymentGatewayController(
     /// Where the guest lands. The page reads the booking itself rather than
     /// trusting these two words — they only decide which sentence it opens with.
     /// </summary>
-    private static string Outcome(PaymentSession? session, string word) =>
-        session is null
-            ? $"/thanh-toan/ket-qua?ket-qua={word}"
-            : $"/thanh-toan/ket-qua?ket-qua={word}&ma={Uri.EscapeDataString(session.OrderRef)}" +
-              $"&don={session.BookingId}";
+    private static string Outcome(PaymentSession? session, string word)
+    {
+        if (session is null) return $"/thanh-toan/ket-qua?ket-qua={word}";
+
+        // A share's payer has no account and no trip page: their link is the
+        // only page they know, and it already shows the share's state.
+        if (session.BillShare is { } share)
+            return $"/split/{share.Token}?ket-qua={word}";
+
+        var head = $"/thanh-toan/ket-qua?ket-qua={word}&ma={Uri.EscapeDataString(session.OrderRef)}";
+
+        if (session.ExperienceBookingId is { } xp) return $"{head}&loai=xp&ve={xp}";
+        if (session.ServiceBookingId is { } svc) return $"{head}&loai=svc&ve={svc}";
+        if (session.IsBalance) return $"{head}&loai=balance&don={session.BookingId}";
+
+        return $"{head}&don={session.BookingId}";
+    }
 
     /// <summary>
     /// <c>app_trans_id</c> out of the raw callback string, without parsing the

@@ -27,11 +27,14 @@ public class ListingModerationTests
     }
 
     [Fact]
-    public void A_draft_never_enters_the_queue_even_with_the_gate_on()
+    public void A_draft_under_the_gate_is_unreviewed_not_approved()
     {
-        // Nothing to review until it is actually published.
-        Assert.Equal(ListingReviewStatus.Approved,
+        // The queue only lists published places, so a draft waits outside it;
+        // approving it here let a later "publish" skip review altogether.
+        Assert.Equal(ListingReviewStatus.Pending,
             ListingModeration.StatusForNew(isPublished: false, requireApproval: true));
+        Assert.Equal(ListingReviewStatus.Pending,
+            ListingModeration.StatusOnSave(ListingReviewStatus.Pending, isPublished: true, requireApproval: true));
     }
 
     [Fact]

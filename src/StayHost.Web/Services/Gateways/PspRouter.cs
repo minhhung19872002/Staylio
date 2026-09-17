@@ -11,9 +11,35 @@ namespace StayHost.Web.Services.Gateways;
 /// stand-in, which would confirm a stay nobody paid for. That is why the pay
 /// endpoint asks this router before it charges anything.
 /// </summary>
-public class PspRouter(IOptions<PspSettings> options, IEnumerable<IPspProvider> providers)
+public class PspRouter(
+    IOptions<PspSettings> options, IEnumerable<IPspProvider> providers, IWebHostEnvironment env)
 {
     private readonly PspSettings _psp = options.Value;
+
+    /// <summary>The methods the stand-in knows how to play. Nothing else is money.</summary>
+    private static readonly HashSet<string> StandInMethods = ["card", "napas", "momo", "zalopay"];
+
+    /// <summary>
+    /// Whether the stand-in may take money for this method, here and now.
+    ///
+    /// Never for a method a real gateway owns — confirming that stay in place
+    /// would skip the gateway entirely — and never for a name that is not one of
+    /// the four checkout rows. /pay used to accept any string at all, so
+    /// "applepay" or "xyz" with card 4242 confirmed a stay nobody paid for, on a
+    /// site where every real row went out to VNPay, OnePay, MoMo or ZaloPay.
+    /// </summary>
+    public bool StandInMay(string? method)
+    {
+        var key = (method ?? "").Trim().ToLowerInvariant();
+        if (!StandInMethods.Contains(key) || IsLive(key)) return false;
+        return StandInEnabled;
+    }
+
+    /// <summary>Whether this deployment runs the stand-in at all (never, by default, in production).</summary>
+    public bool StandInEnabled => _psp.AllowStandIn ?? !env.IsProduction();
+
+    /// <summary>A method a guest can actually pay with right now, by either road.</summary>
+    public bool CanTake(string? method) => IsLive(method) || StandInMay(method);
 
     /// <summary>The gateway for a method, or null when the stand-in still owns it.</summary>
     public IPspProvider? For(string? method)

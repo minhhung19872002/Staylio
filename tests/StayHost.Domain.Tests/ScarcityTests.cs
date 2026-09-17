@@ -78,4 +78,26 @@ public class ScarcityTests
         }
         Assert.True(seenRare);
     }
+
+    [Fact]
+    public void Nights_the_host_closed_are_not_demand()
+    {
+        var today = new DateOnly(2026, 9, 17);
+        IEnumerable<DateOnly> Days(int from, int count) =>
+            Enumerable.Range(from, count).Select(i => today.AddDays(i));
+
+        // Fifty nights shut for repairs and nobody booked: not a rare find, and
+        // with ten nights left in the window there is not enough to say anything.
+        var shut = Scarcity.ReadingOf([], Days(0, 50), today);
+        Assert.Equal(new Scarcity.Reading(10, 10), shut);
+        Assert.False(Scarcity.IsRareFind(shut));
+
+        // The same fifty nights sold, through bookings or an imported calendar,
+        // are exactly what the badge is for.
+        Assert.True(Scarcity.IsRareFind(Scarcity.ReadingOf(Days(0, 50), [], today)));
+
+        // A night both booked and closed counts once, as closed.
+        var both = Scarcity.ReadingOf(Days(0, 5), Days(0, 5), today);
+        Assert.Equal(new Scarcity.Reading(Scarcity.WindowDays - 5, Scarcity.WindowDays - 5), both);
+    }
 }

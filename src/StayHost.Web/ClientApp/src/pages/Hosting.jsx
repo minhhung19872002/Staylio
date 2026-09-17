@@ -45,6 +45,15 @@ export function Hosting() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, state.user]);
 
+  // Links in notifications and emails name a tab (/hosting?tab=earnings). The
+  // page ignored the query, so every one of them opened on "Hôm nay".
+  useEffect(() => {
+    const wanted = new URLSearchParams(location.search).get('tab');
+    if (wanted && TABS.some(([key]) => key === wanted) && state.hostingTab !== wanted)
+      set({ hostingTab: wanted });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   if (!state.user) {
     return (
       <div className="shell" style={{ paddingBlock: '60px 90px' }}>
@@ -542,7 +551,7 @@ function ProviderJobs() {
                 {money(j.total)} · {t('bạn nhận')} <b style={{ color: 'var(--ink)' }}>{money(j.providerPayout)}</b>
               </div>
               <span className={`badge ${j.statusBadge}`} style={{ marginTop: 8 }}>{t(j.statusLabel)}</span>
-              {j.cancelReason && <div className="meta" style={{ marginTop: 6 }}>{j.cancelReason}</div>}
+              {j.cancelReason && <div className="meta" style={{ marginTop: 6 }}>{t(j.cancelReason)}</div>}
             </div>
             {j.canReportMisdeclared && (
               <div className="host-booking-actions">

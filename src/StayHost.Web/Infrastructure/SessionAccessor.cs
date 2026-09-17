@@ -36,6 +36,9 @@ public static class SessionAccessor
                 HttpOnly = true,
                 IsEssential = true,
                 SameSite = SameSiteMode.Lax,
+                // A booking made without an account belongs to this cookie
+                // (docs/07 §2.5), so it is as much a credential as sh_auth.
+                Secure = ctx.Request.IsHttps,
                 Expires = DateTimeOffset.UtcNow.AddYears(1)
             });
         }

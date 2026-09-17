@@ -268,6 +268,14 @@ public class StayHostDbContext(DbContextOptions<StayHostDbContext> options) : Db
             // arrived, and deleting a card must never take that record with it.
             e.HasOne(x => x.GiftCard).WithMany()
                 .HasForeignKey(x => x.GiftCardId).OnDelete(DeleteBehavior.Restrict);
+            // docs/09 — the other two product lines pay through the same gateways.
+            // Restrict for the same reason as the gift card: a paid session is proof.
+            e.HasOne(x => x.ExperienceBooking).WithMany()
+                .HasForeignKey(x => x.ExperienceBookingId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ServiceBooking).WithMany()
+                .HasForeignKey(x => x.ServiceBookingId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.BillShare).WithMany()
+                .HasForeignKey(x => x.BillShareId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // docs/07 §13 — one bank transfer out to a host. Reference is unique for

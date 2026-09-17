@@ -565,7 +565,7 @@ public class AdminController(
         if (admin is null) return StatusCode(403, new { message = "Bạn không có quyền kiểm duyệt." });
 
         var rows = await db.Listings
-            .Where(l => l.ReviewStatus == ListingReviewStatus.Pending)
+            .Where(l => l.ReviewStatus == ListingReviewStatus.Pending && l.IsPublished)
             .OrderBy(l => l.SubmittedForReviewAt)
             .Include(l => l.Images)
             .Include(l => l.Host!).ThenInclude(h => h.User)

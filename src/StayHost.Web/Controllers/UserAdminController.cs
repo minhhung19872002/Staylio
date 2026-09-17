@@ -336,13 +336,10 @@ public class UserAdminController(
     private async Task<SuspensionImpact.Preview> BuildPreviewAsync(
         User user, bool refundInFull, CancellationToken ct)
     {
-        var isHost = user.HostProfile is not null;
+        var hostId = user.HostProfile?.Id;
 
-        var query = isHost
-            ? db.Bookings.Where(b => b.Listing!.HostId == user.HostProfile!.Id)
-            : db.Bookings.Where(b => b.GuestUserId == user.Id);
-
-        var rows = await query
+        var rows = await db.Bookings
+            .Where(b => b.GuestUserId == user.Id || (hostId != null && b.Listing!.HostId == hostId))
             .Include(b => b.Payment)
             .Include(b => b.GuestUser)
             .Include(b => b.Listing!).ThenInclude(l => l.Host)
@@ -357,17 +354,20 @@ public class UserAdminController(
             .Select(c => c.BookingId)
             .ToListAsync(ct);
 
-        var bookings = rows.Select(b => new SuspensionImpact.Booking(
+        SuspensionImpact.Booking Row(Booking b, bool hosted) => new(
             b.Id, b.Reference, b.Status, b.CheckIn, b.CheckOut,
             b.DepositPaid > 0 ? b.DepositPaid : b.Total,
             b.Payment?.HostPayout ?? b.HostPayout,
-            isHost ? b.GuestName ?? "Khách" : b.Listing?.Host?.Name ?? "Chủ nhà",
+            hosted ? b.GuestName ?? "Khách" : b.Listing?.Host?.Name ?? "Chủ nhà",
             b.Payment?.PayoutStatus == PayoutStatus.Paid,
-            disputed.Contains(b.Id)));
+            disputed.Contains(b.Id));
 
-        return isHost
-            ? SuspensionImpact.ForHost(bookings)
-            : SuspensionImpact.ForGuest(bookings, refundInFull);
+        var hosted = rows.Where(b => hostId != null && b.Listing?.HostId == hostId).ToList();
+        var travelled = rows.Where(b => b.GuestUserId == user.Id && !hosted.Contains(b)).ToList();
+
+        return SuspensionImpact.Combine(
+            SuspensionImpact.ForHost(hosted.Select(b => Row(b, true))),
+            SuspensionImpact.ForGuest(travelled.Select(b => Row(b, false)), refundInFull));
     }
 
     /* -------------------------------------- QT-U-04, QT-U-05 and QT-U-06 */
@@ -538,8 +538,6 @@ public class UserAdminController(
     /// </summary>
     private async Task ExecuteFalloutAsync(User user, SuspensionImpact.Preview preview, CancellationToken ct)
     {
-        var isHost = user.HostProfile is not null;
-
         foreach (var line in preview.Lines)
         {
             var booking = await db.Bookings
@@ -548,6 +546,9 @@ public class UserAdminController(
                 .Include(b => b.Listing!).ThenInclude(l => l.Host!).ThenInclude(h => h.User)
                 .FirstOrDefaultAsync(b => b.Id == line.BookingId, ct);
             if (booking is null) continue;
+
+            // Which side of this booking the locked person is on.
+            var isHost = user.HostProfile is { } hp && booking.Listing?.HostId == hp.Id;
 
             switch (line.Action)
             {
@@ -647,7 +648,11 @@ public class UserAdminController(
         if (user.HostProfile is not { } host) return;
 
         var payments = await db.Payments
-            .Where(p => p.PayoutStatus != PayoutStatus.Paid && p.Booking!.Listing!.HostId == host.Id)
+            // Not Sent: those rows are already in a file at the bank. Holding
+            // them here and releasing them on restore put them in a second file.
+            // Stopping a transfer already sent is done by refusing its batch.
+            .Where(p => p.PayoutStatus != PayoutStatus.Paid && p.PayoutStatus != PayoutStatus.Sent
+                        && p.Booking!.Listing!.HostId == host.Id)
             .ToListAsync(ct);
 
         foreach (var p in payments)

@@ -71,10 +71,10 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (16/09/2026).** 1264 test nghiệp vụ + **7 test cổng thanh toán**
+**Toàn bộ xanh (17/09/2026).** 1268 test nghiệp vụ + **24 test tầng web**
 (`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
-đời) · **34/34** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
+đời) · **35/35** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
 **14/14** một giao dịch VNPay trả xong trên chính trang của họ, qua trình duyệt thật
 (`scripts/vnpay_browser_acceptance.py`) · **11/11** hoàn tiền thật qua VNPay
 (`scripts/refund_acceptance.py`) ·
@@ -103,7 +103,7 @@ người trả tiền — xanh cả khi ô thẻ nối cổng thật lẫn khi c
 trạng thái, thẻ chia sẻ, sitemap, và liên kết thật vào cả ba dòng sản phẩm; đây là
 bộ duy nhất chạm tới `ShellSeo.cs`/`PageExistence.cs`, hai file quyết định mã trạng
 thái và thẻ chia sẻ cho **mọi** địa chỉ mà không có test nào khác).
-Sổ sách lệch 0. Cả 203 mã của `docs/01` đã làm xong (`docs/PLAN.md §9`).
+**15/15** kịch bản của `scripts/audit0917_acceptance.py` (`docs/PLAN.md §9.19` — đợt soát sâu 17/09: tiền không ai trả, cửa không chìa, quy tắc không chạy; chạy được cả trên prod). Sổ sách lệch 0. Cả 203 mã của `docs/01` đã làm xong (`docs/PLAN.md §9`).
 
 > **`acceptance.py` cần DB sạch.** Nó ra 8/10 trên DB đã chạy nhiều lần — **không phải
 > lỗi code**: dữ liệu tích luỹ làm bước lùi ngày một đơn về quá khứ đụng ràng buộc GiST
@@ -803,6 +803,40 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   mới đếm thì ra ngay 90 chỗ lệch. Một phép soát ra 0 thì hỏi trước: nó đã thật sự so
   được bao nhiêu thứ?
 
+- **Bản giả lập cổng thanh toán là một lỗ, không phải một tiện ích, khi cổng thật đã bật.**
+  Ngày 17/09 phát hiện năm đường vẫn gọi `PaymentGateway.Charge` trên prod: `/pay` với
+  tên phương thức bất kỳ (`applepay`, `xyz`), vé trải nghiệm, đơn dịch vụ, từng phần chia
+  hoá đơn, và phần còn lại của đơn đặt cọc. Mỗi đường đều **xác nhận đơn và ghi sổ "đã
+  thu"** cho một khoản không ai trả. Vụ thẻ quà tặng ngày 05/09 là cùng một lỗi, sửa ở
+  một chỗ rồi dừng. Giờ `PspRouter.StandInMay` chặn ngay trong `Charge` và **tắt hẳn ở
+  Production**. Thêm một đường thu tiền mới thì hỏi: "khi ô này có cổng thật, tiền đi
+  đâu?" — và thử bằng một phương thức không có trong danh mục.
+- **TLS dừng ở proxy thì app phải được bảo điều đó.** Không đọc `X-Forwarded-Proto`,
+  `Request.IsHttps` luôn `false` sau Caddy: cookie đăng nhập ra **không có `Secure`**,
+  `UseHsts()` không bao giờ gắn header, và mọi link dựng từ `Request.Scheme` (iCal
+  xuất ra, link chia hoá đơn) là `http://`. Không test nào bắt được vì trên máy lập
+  trình mọi thứ vốn là HTTP. Kiểm bằng `curl -sD - https://staylio.vn/api/account/login`.
+- **Một trạng thái "đang chờ ngân hàng" phải bị loại khỏi vòng quét sinh ra nó.** Vòng
+  quét chuyển tiền lọc `PayoutStatus != Paid`, nên đơn đã nằm trong file (`Sent`) bị lấy
+  lại khi bậc thử lại một ngày trôi qua → **file thứ hai, trả chủ nhà hai lần**. Bộ
+  nghiệm thu không thấy vì nó xác nhận file ngay trong cùng lượt chạy.
+- **Endpoint "tiện cho lập trình" trả bí mật trong response là cửa hậu.**
+  `send-verification` trả link xác thực email cho **mọi** người gọi và không gửi thư nào
+  — nên "đã xác thực email" không chứng minh gì, và lời mời đồng quản lý gửi tới một
+  địa chỉ ai cũng nhận được. Bí mật chỉ nằm trong response khi `IsDevelopment()`, như
+  link đặt lại mật khẩu vẫn làm.
+- **Mọi cửa đăng nhập đều nợ bước 2FA, không riêng form mật khẩu.** Link đặt lại mật
+  khẩu và Google/Facebook cấp phiên thẳng, kể cả cho admin. Giờ cùng đi qua
+  `AuthService.SignInOrChallengeAsync`.
+- **Liên kết trong email phải là địa chỉ có thật.** `/hosting/earnings` nằm trong mọi
+  thư chuyển tiền và là **404 trên prod**; `/hosting?tab=team` mở tab "Hôm nay" vì
+  trang không đọc tham số. Thêm một liên kết mới thì `curl -o /dev/null -w "%{http_code}"`
+  nó trên prod.
+- **Kịch bản nghiệm thu "đạt" trong khi vé nằm chờ cổng.** Sau khi trải nghiệm đi ra
+  VNPay, `doc09_acceptance.py` vẫn 19/19 vì nó chỉ kiểm mã 200 và số ghế, trong khi mọi
+  vé đều `AwaitingPayment`. Giờ `_gateway.finish()` ký IPN cho vé/dịch vụ/phần chia
+  như `pay()` làm cho đơn chỗ ở.
+
 ---
 
 ## 5. Chạy dự án
@@ -922,8 +956,8 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ## 6. Kiểm chứng trước khi commit
 
 ```bash
-dotnet test tests/StayHost.Domain.Tests            # 1264 test nghiệp vụ
-dotnet test tests/StayHost.Web.Tests               # 7 test cổng thanh toán (GatewayReply)
+dotnet test tests/StayHost.Domain.Tests            # 1268 test nghiệp vụ
+dotnet test tests/StayHost.Web.Tests               # 24 test tầng web (GatewayReply, PublicNetworkOnly)
 python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13
 python scripts/doc09_acceptance.py                 # 19 kịch bản của docs/09
@@ -932,7 +966,7 @@ python scripts/rolegaps_acceptance.py              # 14 chỗ hở của hai lư
 python scripts/guestcheckout_acceptance.py         # 12 kịch bản của docs/07 §2.5
 python scripts/cohost_share_acceptance.py          # 31 kịch bản chia thu nhập co-host (docs/07 §19)
 python scripts/gateway_acceptance.py               # 30 kịch bản cổng thanh toán, gọi sandbox thật
-python scripts/payout_acceptance.py                # 34 kịch bản chuyển tiền + đối chiếu sao kê (docs/07 §15.4)
+python scripts/payout_acceptance.py                # 35 kịch bản chuyển tiền + đối chiếu sao kê (docs/07 §15.4)
 python scripts/vnpay_browser_acceptance.py         # 14 kịch bản: trả tiền THẬT trên trang VNPay (cần playwright)
 python scripts/refund_acceptance.py                # 11 kịch bản hoàn tiền thật qua VNPay (docs/07 §15.6)
 python scripts/onepay_acceptance.py                # thẻ VISA THẬT qua OnePay — sandbox của họ giờ
@@ -953,6 +987,9 @@ python scripts/giftcard_acceptance.py              # 8 kịch bản TC-08: thẻ
 python scripts/seo_acceptance.py                   # 10 kịch bản SEO: mã trạng thái, thẻ chia sẻ,
                                                    # sitemap, và liên kết thật vào cả ba dòng
                                                    # (kịch bản 10 cần playwright)
+python scripts/audit0917_acceptance.py             # đợt soát 17/09: tiền không ai trả, cửa không chìa,
+                                                   # quy tắc không chạy. Chạy được cả trên prod:
+                                                   # STAYHOST_URL=https://staylio.vn (chỉ kiểm qua HTTP)
 python scripts/i18n_audit.py                       # khoá dịch còn thiếu (phải ra 0), kèm số chữ
                                                    # đi qua toast() chưa có khoá
 cd src/StayHost.Web/ClientApp && npm run build && npx oxlint src

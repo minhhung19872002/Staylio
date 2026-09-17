@@ -18,7 +18,12 @@ public enum DeclineReason
     /// <summary>Very common on Vietnamese domestic cards.</summary>
     OnlinePaymentsOff = 6,
     SuspectedFraud = 7,
-    GatewayError = 8
+    GatewayError = 8,
+    /// <summary>
+    /// Not the bank's answer but the platform's: nothing on this site can take
+    /// money by that method right now, so nothing was attempted.
+    /// </summary>
+    MethodUnavailable = 9
 }
 
 /// <summary>Where one attempt at taking money got to.</summary>
@@ -107,6 +112,7 @@ public static class Payments
         DeclineReason.OnlinePaymentsOff => "Thẻ chưa mở thanh toán trực tuyến. Bạn mở trong ứng dụng ngân hàng rồi thử lại.",
         DeclineReason.SuspectedFraud => "Giao dịch cần xác minh thêm. Bộ phận hỗ trợ sẽ liên hệ với bạn.",
         DeclineReason.GatewayError => "Hệ thống thanh toán đang bận. Vui lòng thử lại sau ít phút.",
+        DeclineReason.MethodUnavailable => "Cách thanh toán này hiện chưa dùng được. Bạn chọn thẻ hoặc ví điện tử khác nhé.",
         _ => "Chưa thanh toán được. Bạn thử lại hoặc dùng phương thức khác nhé."
     };
 
@@ -116,11 +122,12 @@ public static class Payments
     /// saying "thử lại" there only wastes the guest's time.
     /// </summary>
     public static bool Retryable(DeclineReason reason) =>
-        reason is not (DeclineReason.ExpiredCard or DeclineReason.SuspectedFraud);
+        reason is not (DeclineReason.ExpiredCard or DeclineReason.SuspectedFraud or DeclineReason.MethodUnavailable);
 
     /// <summary>True when the guest should be pushed to a different method rather than the same one.</summary>
     public static bool NeedsDifferentMethod(DeclineReason reason) =>
-        reason is DeclineReason.ExpiredCard or DeclineReason.InsufficientFunds or DeclineReason.LimitExceeded;
+        reason is DeclineReason.ExpiredCard or DeclineReason.InsufficientFunds or DeclineReason.LimitExceeded
+            or DeclineReason.MethodUnavailable;
 
     /* --------------------------------------- docs/07 §7, the anti-double key */
 
