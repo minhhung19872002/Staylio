@@ -1498,6 +1498,15 @@ nhất"**; nút **Hữu ích** chỉ cho người đã đăng nhập, một phi�
 seed không có đơn nên không có loại khách — chúng chỉ hiện khi lọc "Mọi loại
 khách". L13: **23/23** local.
 
+**Đối chiếu Booking.com — hỏi đáp công khai.** Khách đã đăng nhập hỏi ngay trên
+trang chỗ nghỉ; chủ nhà (hoặc co-host có quyền Tin nhắn) trả lời ở tab Đánh giá.
+**Chỉ câu đã được trả lời mới công khai**; người hỏi thấy câu của mình đang chờ
+hoặc đã bị chủ nhà chọn không đăng. Câu hỏi và câu trả lời bị từ chối nếu chứa số
+điện thoại / email / liên kết / tài khoản mạng xã hội — cùng bộ lọc của đánh giá,
+vì một câu trả lời công khai là chỗ lý tưởng để kéo đơn ra khỏi sàn. Tối đa 3 câu
+chờ mỗi người mỗi tin; chủ nhà tự hỏi tin của mình bị từ chối. Bảng
+`listing_questions`. L14: **24/24** local.
+
 ---
 
 ## Kiểm chứng

@@ -345,6 +345,14 @@ export const api = {
   /* docs/07 §2.5 — find a booking again with no account. */
   lookupBooking: (reference, email) =>
     request('/api/bookings/lookup', { method: 'POST', body: JSON.stringify({ reference, email }) }),
+  /* Public questions on a listing, answered by its host. */
+  listingQuestions: listingId => request(`/api/listings/${listingId}/questions`),
+  askQuestion: (listingId, question) =>
+    request(`/api/listings/${listingId}/questions`, { method: 'POST', body: JSON.stringify({ question }) }),
+  hostQuestions: () => request('/api/host/questions'),
+  answerQuestion: (id, answer) =>
+    request(`/api/host/questions/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
+  dismissQuestion: id => request(`/api/host/questions/${id}/dismiss`, { method: 'POST' }),
   /* "This review was helpful" — a toggle, signed-in readers only. */
   reviewHelpful: reviewId => request(`/api/reviews/${reviewId}/helpful`, { method: 'POST' }),
   /* Forward a confirmed stay's plan to a travel companion. */

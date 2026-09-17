@@ -40,6 +40,7 @@ public class StayHostDbContext(DbContextOptions<StayHostDbContext> options) : Db
     public DbSet<GuidebookPlace> GuidebookPlaces => Set<GuidebookPlace>();
     public DbSet<GuestReview> GuestReviews => Set<GuestReview>();
     public DbSet<ReviewHelpfulVote> ReviewHelpfulVotes => Set<ReviewHelpfulVote>();
+    public DbSet<ListingQuestion> ListingQuestions => Set<ListingQuestion>();
     public DbSet<TaxRule> TaxRules => Set<TaxRule>();
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
     public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
@@ -1070,6 +1071,18 @@ public class StayHostDbContext(DbContextOptions<StayHostDbContext> options) : Db
             e.HasIndex(x => new { x.ListingId, x.From });
             e.HasOne(x => x.Listing).WithMany(l => l.PriceRules)
                 .HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ListingQuestion>(e =>
+        {
+            e.ToTable("listing_questions");
+            e.HasIndex(x => new { x.ListingId, x.AnsweredAt });
+            e.Property(x => x.Question).HasMaxLength(Domain.ListingQuestions.MaxLength);
+            e.Property(x => x.Answer).HasMaxLength(Domain.ListingQuestions.MaxAnswerLength);
+            e.HasOne(x => x.Listing).WithMany()
+                .HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.AskerUser).WithMany()
+                .HasForeignKey(x => x.AskerUserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<ReviewHelpfulVote>(e =>

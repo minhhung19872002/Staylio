@@ -12,6 +12,7 @@ import { Calendar } from '../components/Calendar.jsx';
 import { DetailMap } from '../components/Maps.jsx';
 import { Icon, AmenityIcon } from '../components/Icon.jsx';
 import { TranslatedText } from '../components/TranslatedText.jsx';
+import { GuestQuestions } from '../components/ListingQuestions.jsx';
 import { PriceLines, ReviewStay, HelpfulButton } from '../components/modals/ListingModals.jsx';
 import { t } from '../lib/i18n.js';
 import { setPageMeta, setStructuredData, listingJsonLd, breadcrumbJsonLd, canonicalUrl } from '../lib/seo.js';
@@ -151,6 +152,7 @@ export function Detail() {
           <Amenities detail={d} />
           <CalendarSection nights={nights} city={c.city} />
           <Reviews detail={d} card={c} />
+          <GuestQuestions listingId={c.id} isOwnListing={false} />
           <Location card={c} landmarks={d.landmarks} />
           <Guidebook detail={d} />
           <HostProfile detail={d} />

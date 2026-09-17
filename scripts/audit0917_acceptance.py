@@ -664,6 +664,36 @@ def l_reviews_say_who_and_count_helpful():
        % (anon, v1, r1, mine.get("votedHelpful"), mine.get("travellerLabel"), mine.get("nights"), r2, self_vote))
 
 
+def l_listing_questions():
+    name = "L14. Hỏi đáp: chỉ câu đã trả lời mới công khai, số điện thoại bị chặn, chủ nhà trả lời được"
+    lst = instant_listing()
+    asker, _ = register("ask%s@staylio.vn" % RUN, "Nguoi Hoi")
+    anon, _ = call(opener(), "/api/listings/%d/questions" % lst["id"], {"question": "Co cho dau xe o to khong a?"})
+    phone, _ = call(asker, "/api/listings/%d/questions" % lst["id"], {"question": "Goi minh 0912 345 678 nhe chu nha"})
+    q = "Co cho dau xe o to khong a? (%s)" % RUN
+    asked, _ = call(asker, "/api/listings/%d/questions" % lst["id"], {"question": q})
+    _, public_before = call(opener(), "/api/listings/%d/questions" % lst["id"])
+    _, mine = call(asker, "/api/listings/%d/questions" % lst["id"])
+    host = sign_in(sql('select u."Email" from listings l join hosts h on h."Id"=l."HostId" '
+                       'join users u on u."Id"=h."UserId" where l."Id"=%d' % lst["id"]))
+    _, inbox = call(host, "/api/host/questions")
+    row = next((x for x in inbox if x["question"] == q), None)
+    stranger, _ = call(asker, "/api/host/questions/%d/answer" % (row or {}).get("id", 0), {"answer": "Toi tra loi thay chu nha"})
+    ans, _ = call(host, "/api/host/questions/%d/answer" % (row or {}).get("id", 0),
+                  {"answer": "Co a, bai do xe ngay truoc cong."})
+    _, public_after = call(opener(), "/api/listings/%d/questions" % lst["id"])
+    shown = next((x for x in public_after if x["question"] == q), {})
+    ok(name,
+       anon == 401 and phone == 400 and asked == 204
+       and all(x["question"] != q for x in public_before)
+       and any(x["question"] == q and x["myStatus"] for x in mine)
+       and row is not None and stranger == 404 and ans == 204
+       and shown.get("answer", "").startswith("Co a"),
+       "ẩn danh=%s, sđt=%s, hỏi=%s, trước trả lời công khai=%s, chủ nhà thấy=%s, người khác trả lời=%s, trả lời=%s, sau=%s"
+       % (anon, phone, asked, any(x["question"] == q for x in public_before), row is not None,
+          stranger, ans, shown.get("answer")))
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
@@ -677,7 +707,8 @@ def main():
                       l_credit_not_spent_twice, l_turnover_back_to_back,
                       l_host_cancel_is_fined, l_service_waits_for_the_provider,
                       l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings,
-                      l_trip_shared_without_the_keys, l_reviews_say_who_and_count_helpful]
+                      l_trip_shared_without_the_keys, l_reviews_say_who_and_count_helpful,
+                      l_listing_questions]
     for s in scenarios:
         try:
             s()

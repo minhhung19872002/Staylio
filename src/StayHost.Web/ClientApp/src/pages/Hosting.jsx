@@ -14,6 +14,7 @@ import { Payout, SuperhostProgress } from './hosting/Payout.jsx';
 import { MultiCalendar } from './hosting/MultiCalendar.jsx';
 import { Team } from './hosting/Team.jsx';
 import { StayDetailsSummary } from '../components/StayDetailsFields.jsx';
+import { HostQuestions } from '../components/ListingQuestions.jsx';
 
 const TABS = [
   ['today', 'Hôm nay'], ['overview', 'Tổng quan'], ['listings', 'Chỗ nghỉ'],
@@ -133,7 +134,7 @@ export function Hosting() {
       {tab === 'services' && <HostServices />}
       {tab === 'calendar' && <MultiCalendar />}
       {tab === 'bookings' && <Bookings d={d} navigate={navigate} />}
-      {tab === 'reviews' && <HostReviews />}
+      {tab === 'reviews' && <><HostQuestions /><HostReviews /></>}
       {tab === 'earnings' && <Earnings d={d} />}
       {tab === 'payout' && <><Payout /><SuperhostProgress /></>}
       {tab === 'team' && <Team />}
