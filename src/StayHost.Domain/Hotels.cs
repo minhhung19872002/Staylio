@@ -116,31 +116,56 @@ public static class HotelRules
     /// many of that kind are taken on the busiest night of the stay, not
     /// whether the property is booked at all.
     /// </summary>
-    public static Check CanBook(RoomTypeOption? room, int guests, int takenOnBusiestNight)
+    public static Check CanBook(RoomTypeOption? room, int guests, int takenOnBusiestNight, int rooms = 1)
     {
         if (room is null)
             return Check.Fail(Refusal.UnknownRoomType, "Chọn một loại phòng trước khi đặt.");
 
-        if (guests > room.MaxGuests)
-            return Check.Fail(Refusal.TooManyGuests, $"Phòng {room.Name} nhận tối đa {room.MaxGuests} khách.");
+        if (rooms < 1 || rooms > MaxRoomsPerBooking)
+            return Check.Fail(Refusal.TooManyGuests, $"Mỗi đơn đặt từ 1 đến {MaxRoomsPerBooking} phòng.");
 
-        return takenOnBusiestNight < room.Inventory
-            ? Check.Pass
-            : Check.Fail(Refusal.SoldOut, $"Phòng {room.Name} đã hết cho những ngày này.");
+        // Guests spread over the rooms booked; the party has to fit in all of them together.
+        if (guests > room.MaxGuests * rooms)
+        {
+            return Check.Fail(Refusal.TooManyGuests, rooms == 1
+                ? $"Phòng {room.Name} nhận tối đa {room.MaxGuests} khách."
+                : $"{rooms} phòng {room.Name} nhận tối đa {room.MaxGuests * rooms} khách.");
+        }
+
+        var left = room.Inventory - takenOnBusiestNight;
+        if (left >= rooms) return Check.Pass;
+        return Check.Fail(Refusal.SoldOut, left <= 0
+            ? $"Phòng {room.Name} đã hết cho những ngày này."
+            : $"Phòng {room.Name} chỉ còn {left} phòng cho những ngày này.");
     }
+
+    /// <summary>How many rooms of one kind a single booking may take.</summary>
+    public const int MaxRoomsPerBooking = 9;
+
+    /// <summary>
+    /// The fewest free rooms of one kind on any night, given what is booked —
+    /// what the room picker may offer.
+    /// </summary>
+    public static int Available(RoomTypeOption room, int takenOnBusiestNight) =>
+        Math.Max(0, room.Inventory - takenOnBusiestNight);
 
     /// <summary>
     /// The most rooms of one kind occupied on any single night of a stay. A
     /// booking that leaves before another arrives does not stack.
     /// </summary>
     public static int PeakOccupancy(
-        DateOnly checkIn, DateOnly checkOut, IReadOnlyCollection<(DateOnly From, DateOnly To)> taken)
+        DateOnly checkIn, DateOnly checkOut, IReadOnlyCollection<(DateOnly From, DateOnly To)> taken) =>
+        PeakRooms(checkIn, checkOut, taken.Select(t => (t.From, t.To, 1)).ToList());
+
+    /// <summary>The same, when one booking may hold several rooms of the kind.</summary>
+    public static int PeakRooms(
+        DateOnly checkIn, DateOnly checkOut, IReadOnlyCollection<(DateOnly From, DateOnly To, int Rooms)> taken)
     {
         var peak = 0;
         for (var night = checkIn; night < checkOut; night = night.AddDays(1))
         {
             var d = night;
-            peak = Math.Max(peak, taken.Count(t => t.From <= d && d < t.To));
+            peak = Math.Max(peak, taken.Where(t => t.From <= d && d < t.To).Sum(t => Math.Max(1, t.Rooms)));
         }
         return peak;
     }
@@ -198,4 +223,38 @@ public sealed record RatePlan(int NonRefundableDiscountPercent, decimal Breakfas
     /// <summary>A non-refundable plan replaces whatever tier the listing has.</summary>
     public CancellationTier TierFor(CancellationTier listingTier) =>
         NonRefundableDiscountPercent > 0 ? CancellationTier.NonRefundable : listingTier;
+}
+
+/// <summary>
+/// What a host may set on a kind of room. Refused by name, so the editor can
+/// say which field is wrong rather than "không hợp lệ".
+/// </summary>
+public static class RoomTypeRules
+{
+    public const int MaxInventory = 500;
+    public const int MaxGuestsPerRoom = 20;
+
+    public static string? Problem(string? name, int inventory, int maxGuests, int beds, double sizeSqm, decimal price)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length < 3) return "Tên loại phòng cần ít nhất 3 ký tự.";
+        if (name.Trim().Length > 80) return "Tên loại phòng tối đa 80 ký tự.";
+        if (inventory < 1 || inventory > MaxInventory) return $"Số phòng phải từ 1 đến {MaxInventory}.";
+        if (maxGuests < 1 || maxGuests > MaxGuestsPerRoom) return $"Số khách mỗi phòng phải từ 1 đến {MaxGuestsPerRoom}.";
+        if (beds < 1 || beds > 10) return "Số giường phải từ 1 đến 10.";
+        if (sizeSqm < 0 || sizeSqm > 1000) return "Diện tích không hợp lệ.";
+        if (price < 50_000m) return "Giá mỗi đêm tối thiểu 50.000 ₫.";
+        return null;
+    }
+
+    /// <summary>
+    /// A hotel listing's own numbers follow its rooms: the card shows the
+    /// cheapest room, and the search for "n khách" should find the biggest.
+    /// </summary>
+    public static void SyncListing(Listing listing, IReadOnlyCollection<RoomTypeOption> rooms)
+    {
+        if (rooms.Count == 0) return;
+        listing.PricePerNight = rooms.Min(r => r.PricePerNight);
+        listing.MaxGuests = rooms.Max(r => r.MaxGuests);
+        listing.Beds = rooms.Max(r => r.Beds);
+    }
 }

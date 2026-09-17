@@ -37,7 +37,14 @@ public class HostController(
 
     public record HostRoomTypeDto(
         int Id, int ListingId, string ListingTitle, string Name, decimal PricePerNight,
-        int NonRefundableDiscountPercent, decimal BreakfastPricePerGuest);
+        int NonRefundableDiscountPercent, decimal BreakfastPricePerGuest,
+        string Summary = "", int Inventory = 1, int MaxGuests = 2, int Beds = 1, double SizeSqm = 0,
+        string? ImageUrl = null, string Features = "");
+
+    public record SaveRoomTypeRequest(
+        int ListingId, string? Name, string? Summary, int Inventory, int MaxGuests, int Beds,
+        double SizeSqm, decimal PricePerNight, string? ImageUrl, string? Features,
+        int NonRefundableDiscountPercent = 0, decimal BreakfastPricePerGuest = 0);
 
     /// <summary>Every hotel room the caller may price: their own, and ones lent with the Pricing scope.</summary>
     [HttpGet("room-types")]
@@ -50,9 +57,134 @@ public class HostController(
             .Where(r => ids.Contains(r.ListingId))
             .OrderBy(r => r.ListingId).ThenBy(r => r.SortOrder).ThenBy(r => r.Id)
             .Select(r => new HostRoomTypeDto(r.Id, r.ListingId, r.Listing!.Title, r.Name, r.PricePerNight,
-                r.NonRefundableDiscountPercent, r.BreakfastPricePerGuest))
+                r.NonRefundableDiscountPercent, r.BreakfastPricePerGuest,
+                r.Summary, r.Inventory, r.MaxGuests, r.Beds, r.SizeSqm, r.ImageUrl, r.Features))
             .ToListAsync(ct));
     }
+
+    /// <summary>
+    /// A hotel's kinds of room, managed by its host (or a co-host lent the
+    /// Listing scope). Before this only seeded hotels had any, so a real hotel
+    /// could be listed but never sold by the room.
+    /// </summary>
+    [HttpPost("room-types")]
+    public async Task<ActionResult<HostRoomTypeDto>> CreateRoomType([FromBody] SaveRoomTypeRequest req, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+        var listing = await db.Listings.FirstOrDefaultAsync(l => l.Id == req.ListingId, ct);
+        if (listing is null) return NotFound();
+        if (!await MayAsync(user, listing, CoHostScope.Listing, ct)) return this.Denied();
+        if (listing.Type != PlaceType.Hotel)
+            return BadRequest(new { message = "Chỉ khách sạn mới có loại phòng." });
+
+        var room = new RoomTypeOption
+        {
+            ListingId = listing.Id,
+            SortOrder = await db.RoomTypes.CountAsync(r => r.ListingId == listing.Id, ct)
+        };
+        if (Apply(room, req) is { } problem) return BadRequest(new { message = problem });
+
+        db.RoomTypes.Add(room);
+        await ResyncAsync(listing, room, ct);
+        await db.SaveChangesAsync(ct);
+        return Ok(ToHostRoom(room, listing));
+    }
+
+    [HttpPut("room-types/{id:int}")]
+    public async Task<ActionResult<HostRoomTypeDto>> UpdateRoomType(int id, [FromBody] SaveRoomTypeRequest req, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+        var room = await db.RoomTypes.Include(r => r.Listing).FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (room?.Listing is null) return NotFound();
+        if (!await MayAsync(user, room.Listing, CoHostScope.Listing, ct)) return this.Denied();
+        if (req.PricePerNight != room.PricePerNight && !await MayAsync(user, room.Listing, CoHostScope.Pricing, ct))
+            return this.Denied();
+
+        // Fewer rooms than are already sold on some future night would oversell it.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var sold = await db.Bookings
+            .Where(b => b.RoomTypeId == room.Id && BookingLifecycle.BlocksDates.Contains(b.Status) && b.CheckOut > today)
+            .Select(b => new { b.CheckIn, b.CheckOut, b.Rooms })
+            .ToListAsync(ct);
+        if (sold.Count > 0)
+        {
+            var peak = HotelRules.PeakRooms(
+                sold.Min(b => b.CheckIn) < today ? today : sold.Min(b => b.CheckIn),
+                sold.Max(b => b.CheckOut),
+                sold.Select(b => (b.CheckIn, b.CheckOut, b.Rooms)).ToList());
+            if (req.Inventory < peak)
+                return BadRequest(new { message = $"Đã có ngày bán {peak} phòng loại này, không giảm xuống {req.Inventory} được." });
+        }
+
+        if (Apply(room, req) is { } problem) return BadRequest(new { message = problem });
+        await ResyncAsync(room.Listing, room, ct);
+        await db.SaveChangesAsync(ct);
+        return Ok(ToHostRoom(room, room.Listing));
+    }
+
+    /// <summary>A kind of room with stays still ahead cannot go: those guests were sold it.</summary>
+    [HttpDelete("room-types/{id:int}")]
+    public async Task<IActionResult> DeleteRoomType(int id, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+        var room = await db.RoomTypes.Include(r => r.Listing).FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (room?.Listing is null) return NotFound();
+        if (!await MayAsync(user, room.Listing, CoHostScope.Listing, ct)) return this.Denied();
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        if (await db.Bookings.AnyAsync(b => b.RoomTypeId == room.Id && b.CheckOut > today
+                                             && BookingLifecycle.BlocksDates.Contains(b.Status), ct))
+            return Conflict(new { message = "Loại phòng này còn đơn sắp tới nên chưa xoá được." });
+        if (await db.Bookings.AnyAsync(b => b.RoomTypeId == room.Id, ct))
+            return Conflict(new { message = "Loại phòng này đã có lịch sử đặt nên không xoá được; hãy đặt số phòng về mức thấp nhất thay vì xoá." });
+
+        db.RoomTypes.Remove(room);
+        var rest = await db.RoomTypes.Where(r => r.ListingId == room.ListingId && r.Id != room.Id).ToListAsync(ct);
+        RoomTypeRules.SyncListing(room.Listing, rest);
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    private static string? Apply(RoomTypeOption room, SaveRoomTypeRequest req)
+    {
+        if (RoomTypeRules.Problem(req.Name, req.Inventory, req.MaxGuests, req.Beds, req.SizeSqm, req.PricePerNight) is { } p)
+            return p;
+        if (req.NonRefundableDiscountPercent is < 0 or > RatePlan.MaxNonRefundablePercent)
+            return $"Mức giảm cho giá không hoàn tiền phải từ 0 đến {RatePlan.MaxNonRefundablePercent}%.";
+        if (req.BreakfastPricePerGuest < 0 || req.BreakfastPricePerGuest > req.PricePerNight)
+            return "Giá bữa sáng không hợp lệ.";
+        var image = req.ImageUrl?.Trim();
+        if (!string.IsNullOrEmpty(image) && !(image.StartsWith("https://") || image.StartsWith("/uploads/")))
+            return "Ảnh phải là đường dẫn https hoặc ảnh đã tải lên.";
+
+        room.Name = req.Name!.Trim();
+        room.Summary = (req.Summary ?? "").Trim();
+        room.Inventory = req.Inventory;
+        room.MaxGuests = req.MaxGuests;
+        room.Beds = req.Beds;
+        room.SizeSqm = req.SizeSqm;
+        room.PricePerNight = Math.Round(req.PricePerNight, 0);
+        room.ImageUrl = string.IsNullOrEmpty(image) ? null : image;
+        room.Features = string.Join('\n', (req.Features ?? "").Split('\n',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(20));
+        room.NonRefundableDiscountPercent = req.NonRefundableDiscountPercent;
+        room.BreakfastPricePerGuest = Math.Round(req.BreakfastPricePerGuest, 0);
+        return null;
+    }
+
+    private async Task ResyncAsync(Listing listing, RoomTypeOption changed, CancellationToken ct)
+    {
+        var others = await db.RoomTypes.Where(r => r.ListingId == listing.Id && r.Id != changed.Id).ToListAsync(ct);
+        RoomTypeRules.SyncListing(listing, [.. others, changed]);
+        listing.RefreshSearchText();
+    }
+
+    private static HostRoomTypeDto ToHostRoom(RoomTypeOption r, Listing l) => new(
+        r.Id, l.Id, l.Title, r.Name, r.PricePerNight, r.NonRefundableDiscountPercent, r.BreakfastPricePerGuest,
+        r.Summary, r.Inventory, r.MaxGuests, r.Beds, r.SizeSqm, r.ImageUrl, r.Features);
 
     /// <summary>
     /// The non-refundable discount and the breakfast price a room is sold with.
@@ -104,6 +236,7 @@ public class HostController(
             .Include(b => b.Listing)
             .Include(b => b.Payment)
             .Include(b => b.GuestUser)
+            .Include(b => b.RoomType)
             .OrderByDescending(b => b.CreatedAt)
             .ToListAsync(ct);
 
@@ -775,7 +908,9 @@ public class HostController(
             var check = await rules.CheckAsync(
                 booking.Listing!, booking.CheckIn, booking.CheckOut,
                 new PartySize(booking.Adults, booking.Children, booking.Infants, booking.Pets), ct,
-                ignoreBookingId: booking.Id);
+                // A hotel request has to be checked against its own kind of room;
+                // without it every hotel request failed with "chọn loại phòng".
+                ignoreBookingId: booking.Id, roomTypeId: booking.RoomTypeId, rooms: booking.Rooms);
 
             if (!check.Ok) return Conflict(new { message = check.Message, reason = check.Reason.ToString() });
 
@@ -1252,6 +1387,8 @@ public class HostController(
             change.Difference, ChangeRequests.DiffLabel(change.Difference)),
         b.PaidAtProperty, b.CashCollectedAt, b.GuestPhone)
     {
-        Details = StayDetailsDto.Of(b)
+        Details = StayDetailsDto.Of(b),
+        Rooms = b.Rooms,
+        RoomTypeName = b.RoomType?.Name
     };
 }

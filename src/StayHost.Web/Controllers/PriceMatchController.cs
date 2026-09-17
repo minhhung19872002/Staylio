@@ -44,11 +44,14 @@ public class PriceMatchController(
         if (!Uri.TryCreate(url, UriKind.Absolute, out _))
             return BadRequest(new { message = "Cần đường dẫn tới nơi bạn thấy giá rẻ hơn." });
 
+        // Per room per night, which is how a competitor quotes it; the gap then
+        // applies to every room the booking holds.
+        var rooms = Math.Max(1, booking.Rooms);
         var ourNightly = booking.Nights > 0
-            ? Math.Round(booking.RoomBeforeDiscount / booking.Nights, 0, MidpointRounding.AwayFromZero)
-            : booking.RoomBeforeDiscount;
+            ? Math.Round(booking.RoomBeforeDiscount / booking.Nights / rooms, 0, MidpointRounding.AwayFromZero)
+            : booking.RoomBeforeDiscount / rooms;
 
-        var difference = HotelRules.MatchValue(ourNightly, req.CompetitorNightlyRate, booking.Nights);
+        var difference = HotelRules.MatchValue(ourNightly, req.CompetitorNightlyRate, booking.Nights) * rooms;
         if (difference <= 0)
             return BadRequest(new
             {

@@ -178,6 +178,8 @@ export const state = {
   /** Hotel rate plan on top of the room: the non-refundable rate, breakfast. */
   nonRefundableRate: false,
   breakfast: false,
+  /** Hotel rooms of the chosen kind, booked together. */
+  roomCount: 1,
   // docs/01 ĐP-07 — let other people pay their share instead of paying it all.
   splitBill: false,
   splitEmails: '',
@@ -821,6 +823,7 @@ export async function refreshQuote() {
       roomTypeId: state.roomTypeId,
       nonRefundable: (state.roomTypeId && state.nonRefundableRate) || undefined,
       breakfast: (state.roomTypeId && state.breakfast) || undefined,
+      rooms: state.roomTypeId && state.roomCount > 1 ? state.roomCount : undefined,
       // docs/01 ĐP-09 — the code is priced server-side so the guest sees the
       // discount, or the reason it did not apply, before committing.
       couponCode: state.couponCode || undefined
@@ -841,7 +844,7 @@ export function applyCoupon(code) {
 /** docs/01 MR-09 — picking a room re-prices the panel against that room. */
 export function setRoom(roomTypeId) {
   // A plan belongs to a room; picking another room starts from its plain rate.
-  if (state.roomTypeId !== roomTypeId) Object.assign(state, { nonRefundableRate: false, breakfast: false });
+  if (state.roomTypeId !== roomTypeId) Object.assign(state, { nonRefundableRate: false, breakfast: false, roomCount: 1 });
   state.roomTypeId = roomTypeId;
   notify();
   refreshQuote();
@@ -875,6 +878,7 @@ export async function holdDates(extra = {}) {
       roomTypeId: state.roomTypeId,
       nonRefundableRate: !!(state.roomTypeId && state.nonRefundableRate),
       breakfast: !!(state.roomTypeId && state.breakfast),
+      rooms: state.roomTypeId ? state.roomCount : 1,
       useCredit: state.useCredit,
       // docs/01 ĐP-09 — the code committed at the hold, re-checked at payment.
       couponCode: state.couponCode || undefined,
@@ -1438,7 +1442,8 @@ export function bumpGuest(key, delta) {
 
 /** The book panel's single +/- pair, which only moves adults and children. */
 export function bumpTotalGuests(delta) {
-  const max = state.detail?.card.maxGuests ?? 16;
+  // Several hotel rooms hold several times the guests.
+  const max = (state.detail?.card.maxGuests ?? 16) * (state.roomTypeId ? state.roomCount : 1);
   const next = Math.min(max, Math.max(1, totalGuests() + delta));
   const diff = next - totalGuests();
   if (!diff) return;

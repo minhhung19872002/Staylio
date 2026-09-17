@@ -709,6 +709,9 @@ public class Booking
     /// <summary>The Staylio Thân thiết discount this booking was sold with, frozen at the hold.</summary>
     public int LoyaltyPercent { get; set; }
 
+    /// <summary>Hotel rooms of the chosen kind this booking holds; 1 for everything else.</summary>
+    public int Rooms { get; set; } = 1;
+
     /// <summary>docs/01 MR-09 — which kind of room, for a hotel booking.</summary>
     public int? RoomTypeId { get; set; }
     public RoomTypeOption? RoomType { get; set; }

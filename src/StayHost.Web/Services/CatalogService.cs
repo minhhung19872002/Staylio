@@ -1367,16 +1367,16 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
             .Where(b => b.ListingId == listing.Id && b.RoomTypeId != null
                         && BookingLifecycle.BlocksDates.Contains(b.Status)
                         && b.CheckIn < to && from < b.CheckOut)
-            .Select(b => new { b.RoomTypeId, b.CheckIn, b.CheckOut })
+            .Select(b => new { b.RoomTypeId, b.CheckIn, b.CheckOut, b.Rooms })
             .ToListAsync(ct);
 
         return rooms.Select(r =>
         {
-            var mine = taken.Where(t => t.RoomTypeId == r.Id).Select(t => (t.CheckIn, t.CheckOut)).ToList();
-            var peak = HotelRules.PeakOccupancy(from, to, mine);
+            var mine = taken.Where(t => t.RoomTypeId == r.Id).Select(t => (t.CheckIn, t.CheckOut, t.Rooms)).ToList();
+            var peak = HotelRules.PeakRooms(from, to, mine);
 
             return new HotelRoomDto(
-                r.Id, r.Name, r.Summary, r.Inventory, Math.Max(0, r.Inventory - peak),
+                r.Id, r.Name, r.Summary, r.Inventory, HotelRules.Available(r, peak),
                 r.MaxGuests, r.Beds, r.SizeSqm, r.PricePerNight, r.ImageUrl, r.FeatureList,
                 r.NonRefundableDiscountPercent, r.BreakfastPricePerGuest);
         }).ToList();
@@ -1429,7 +1429,7 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
     public async Task<Pricing.Request?> BuildQuoteRequestAsync(
         int listingId, DateOnly checkIn, DateOnly checkOut, PartySize party, CancellationToken ct,
         int? excludeBookingId = null, int? roomTypeId = null, decimal? nightlyOverride = null,
-        RatePlan? plan = null, int loyaltyPercent = 0)
+        RatePlan? plan = null, int loyaltyPercent = 0, int rooms = 1)
     {
         var l = await db.Listings.FirstOrDefaultAsync(x => x.Id == listingId, ct);
         if (l is null) return null;
@@ -1465,7 +1465,9 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
             ListingBookingCount = soldStays,
             NightlyRateOverride = roomRate,
             Plan = plan ?? RatePlan.None,
-            LoyaltyPercent = loyaltyPercent
+            LoyaltyPercent = loyaltyPercent,
+            // Several rooms only make sense for a hotel room type.
+            Rooms = roomTypeId is null ? 1 : Math.Clamp(rooms, 1, HotelRules.MaxRoomsPerBooking)
         };
     }
 
@@ -1483,10 +1485,10 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
     public async Task<QuoteDto?> QuoteAsync(
         int listingId, DateOnly checkIn, DateOnly checkOut, PartySize party, CancellationToken ct,
         int? roomTypeId = null, decimal couponAmount = 0, string? couponLabel = null, string? couponError = null,
-        RatePlan? plan = null)
+        RatePlan? plan = null, int rooms = 1)
     {
         var request = await BuildQuoteRequestAsync(
-            listingId, checkIn, checkOut, party, ct, roomTypeId: roomTypeId, plan: plan);
+            listingId, checkIn, checkOut, party, ct, roomTypeId: roomTypeId, plan: plan, rooms: rooms);
         if (request is null) return null;
 
         // The guest asking is the guest who will book: price it for their level.
@@ -1508,7 +1510,7 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
             b.Subtotal, b.GuestServiceFee, b.Tax, b.Total,
             b.HostServiceFee, b.HostPayout,
             b.Lines.Select(x => new PriceLineDto(x.Key, x.Label, x.Amount)).ToList(),
-            party.Counted > l.MaxGuests, l.MaxGuests,
+            party.Counted > l.MaxGuests * request.Rooms, l.MaxGuests * request.Rooms,
             l.MinNights, b.Nights < l.MinNights,
             Cancellation.Label(request.Plan.TierFor(l.CancellationTier)),
             Cancellation.Summary(request.Plan.TierFor(l.CancellationTier)),
@@ -1517,7 +1519,8 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
             CouponError: couponError)
         {
             BreakfastFee = b.BreakfastFee,
-            NonRefundableRate = request.Plan.NonRefundableDiscountPercent > 0
+            NonRefundableRate = request.Plan.NonRefundableDiscountPercent > 0,
+            Rooms = request.Rooms
         };
     }
 }

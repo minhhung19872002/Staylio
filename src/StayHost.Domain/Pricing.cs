@@ -48,6 +48,9 @@ public static class Pricing
         /// </summary>
         public decimal? NightlyRateOverride { get; init; }
 
+        /// <summary>Hotel rooms of the same kind booked together. Everything nightly scales with them.</summary>
+        public int Rooms { get; init; } = 1;
+
         /// <summary>A hotel room's non-refundable rate and breakfast, already resolved.</summary>
         public RatePlan Plan { get; init; } = RatePlan.None;
 
@@ -64,7 +67,7 @@ public static class Pricing
     public sealed record Breakdown
     {
         public required int Nights { get; init; }
-        /// <summary>Average nightly rate before discounts, for "x ₫ × n đêm".</summary>
+        /// <summary>Average nightly rate of one room before discounts, for "x ₫ × n đêm".</summary>
         public required decimal NightlyRate { get; init; }
         public required decimal RoomBeforeDiscount { get; init; }
         public required decimal RoomDiscount { get; init; }
@@ -203,7 +206,8 @@ public static class Pricing
         var nightly = new List<NightRate>(nights);
         for (var i = 0; i < nights; i++)
             nightly.Add(RateFor(l, req.CheckIn.AddDays(i), req.PriceRules, req.NightlyRateOverride));
-        var roomBeforeDiscount = nightly.Sum(n => n.Rate);
+        var rooms = Math.Max(1, req.Rooms);
+        var roomBeforeDiscount = nightly.Sum(n => n.Rate) * rooms;
 
         // Steps 2–4 — discounts, applied to the room charge only.
         var (discountPercent, discountParts) = DiscountsFor(req, nights);
@@ -211,7 +215,8 @@ public static class Pricing
         var roomAfterDiscount = roomBeforeDiscount - roomDiscount;
 
         // Step 5 — surcharges. Infants are free; the cleaning fee is once per stay.
-        var extraGuests = Math.Max(0, req.Party.Counted - l.FreeGuestThreshold);
+        // Each room includes its own guests; only the ones beyond all of them pay extra.
+        var extraGuests = Math.Max(0, req.Party.Counted - l.FreeGuestThreshold * rooms);
         var extraGuestFee = Round(extraGuests * l.ExtraGuestFee * nights);
         var petFee = req.Party.Pets > 0
             ? Round(l.PetFeePerNight ? l.PetFee * nights : l.PetFee)
@@ -247,7 +252,10 @@ public static class Pricing
 
         var lines = new List<PriceLine>
         {
-            new("room", $"{FormatVnd(roomBeforeDiscount / nights)} × {nights} đêm", roomBeforeDiscount)
+            new("room", rooms == 1
+                ? $"{FormatVnd(roomBeforeDiscount / nights)} × {nights} đêm"
+                : $"{FormatVnd(roomBeforeDiscount / nights / rooms)} × {rooms} phòng × {nights} đêm",
+                roomBeforeDiscount)
         };
 
         // The named parts explain the percentage; one row carries the money.
@@ -273,7 +281,7 @@ public static class Pricing
         return new Breakdown
         {
             Nights = nights,
-            NightlyRate = Round(roomBeforeDiscount / nights),
+            NightlyRate = Round(roomBeforeDiscount / nights / rooms),
             RoomBeforeDiscount = roomBeforeDiscount,
             RoomDiscount = roomDiscount,
             DiscountPercent = discountPercent,

@@ -50,6 +50,9 @@ public static class Availability
         /// <summary>Per-day minimum-night overrides, keyed by night.</summary>
         public IReadOnlyDictionary<DateOnly, int> MinNightsByDay { get; init; } =
             new Dictionary<DateOnly, int>();
+
+        /// <summary>Hotel rooms booked together; capacity scales with them.</summary>
+        public int Rooms { get; init; } = 1;
     }
 
     public static Result Check(Request req)
@@ -67,8 +70,8 @@ public static class Availability
             return Result.Fail(Reason.NotBookable, "Chỗ nghỉ này hiện không nhận đặt.");
 
         // 2 — capacity. Infants do not count.
-        if (req.Party.Counted > l.MaxGuests)
-            return Result.Fail(Reason.OverCapacity, $"Chỗ nghỉ này nhận tối đa {l.MaxGuests} khách.");
+        if (req.Party.Counted > l.MaxGuests * Math.Max(1, req.Rooms))
+            return Result.Fail(Reason.OverCapacity, $"Chỗ nghỉ này nhận tối đa {l.MaxGuests * Math.Max(1, req.Rooms)} khách.");
 
         // 3 — pets.
         if (req.Party.Pets > 0)

@@ -62,7 +62,7 @@ public class BookingService(StayHostDbContext db)
     /// </summary>
     public async Task<Availability.Result> CheckAsync(
         Listing listing, DateOnly checkIn, DateOnly checkOut, PartySize party, CancellationToken ct,
-        int? ignoreBookingId = null, int? roomTypeId = null)
+        int? ignoreBookingId = null, int? roomTypeId = null, int rooms = 1)
     {
         // A window either side of the stay, wide enough for the turnover check.
         var from = checkIn.AddDays(-Math.Max(1, listing.TurnoverDays));
@@ -72,7 +72,7 @@ public class BookingService(StayHostDbContext db)
         // only stands in the way when it took the same kind of room and the
         // property has run out of them. Availability is counted, not exclusive.
         if (listing.IsHotel)
-            return await CheckHotelAsync(listing, checkIn, checkOut, party, roomTypeId, ignoreBookingId, ct);
+            return await CheckHotelAsync(listing, checkIn, checkOut, party, roomTypeId, ignoreBookingId, rooms, ct);
 
         var stays = await db.Bookings
             .Where(b => b.ListingId == listing.Id
@@ -123,10 +123,10 @@ public class BookingService(StayHostDbContext db)
     /// </summary>
     private async Task<Availability.Result> CheckHotelAsync(
         Listing listing, DateOnly checkIn, DateOnly checkOut, PartySize party,
-        int? roomTypeId, int? ignoreBookingId, CancellationToken ct)
+        int? roomTypeId, int? ignoreBookingId, int rooms, CancellationToken ct)
     {
-        var rooms = await db.RoomTypes.Where(r => r.ListingId == listing.Id).ToListAsync(ct);
-        var room = rooms.FirstOrDefault(r => r.Id == roomTypeId);
+        var roomTypes = await db.RoomTypes.Where(r => r.ListingId == listing.Id).ToListAsync(ct);
+        var room = roomTypes.FirstOrDefault(r => r.Id == roomTypeId);
 
         var blocks = await db.CalendarBlocks
             .Where(b => b.ListingId == listing.Id && b.From < checkOut && checkIn <= b.To)
@@ -143,7 +143,8 @@ public class BookingService(StayHostDbContext db)
             Party = party,
             LocalNow = LocalNow(listing),
             Occupied = [.. blocks.Select(b => new Availability.Occupied(b.From, b.To, true))],
-            MinNightsByDay = new Dictionary<DateOnly, int>()
+            MinNightsByDay = new Dictionary<DateOnly, int>(),
+            Rooms = rooms
         });
         if (!basic.Ok) return basic;
 
@@ -153,13 +154,13 @@ public class BookingService(StayHostDbContext db)
                         && b.Id != (ignoreBookingId ?? 0)
                         && BookingLifecycle.BlocksDates.Contains(b.Status)
                         && b.CheckIn < checkOut && checkIn < b.CheckOut)
-            .Select(b => new { b.CheckIn, b.CheckOut })
+            .Select(b => new { b.CheckIn, b.CheckOut, b.Rooms })
             .ToListAsync(ct);
 
-        var peak = HotelRules.PeakOccupancy(
-            checkIn, checkOut, taken.Select(t => (t.CheckIn, t.CheckOut)).ToList());
+        var peak = HotelRules.PeakRooms(
+            checkIn, checkOut, taken.Select(t => (t.CheckIn, t.CheckOut, t.Rooms)).ToList());
 
-        var check = HotelRules.CanBook(room, party.Counted, peak);
+        var check = HotelRules.CanBook(room, party.Counted, peak, rooms);
         return check.Ok
             ? Availability.Result.Pass
             : Availability.Result.Fail(

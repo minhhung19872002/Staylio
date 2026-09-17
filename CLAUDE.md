@@ -71,7 +71,7 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (17/09/2026).** 1317 test nghiệp vụ + **24 test tầng web**
+**Toàn bộ xanh (17/09/2026).** 1327 test nghiệp vụ + **24 test tầng web**
 (`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
 đời) · **35/35** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
@@ -805,6 +805,18 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   tin mẫu **tự biến mất khỏi sàn** giữa chừng, kéo bốn kịch bản khác hỏng theo với
   lý do "Chỗ nghỉ này hiện không nhận đặt". Mốc thời điểm của một hành động nằm ở
   `BookingEvents`, không nằm trên đơn.
+- **Khoá dịch có con số thì mọi con số đều thành `{}`, kể cả số 1.** `t()` nhấc
+  **mọi** dãy chữ số ra khỏi câu (`/\d[\d.,]*/`), nên "Số phòng phải từ 1 đến 500."
+  tra bằng khoá `"Số phòng phải từ {} đến {}."` — viết khoá `"…từ 1 đến {}."` thì
+  không bao giờ khớp và người đọc tiếng Anh thấy nguyên câu tiếng Việt. "50.000 ₫"
+  cũng chỉ là **một** `{}`, không phải `{}.{}`. Không có gì báo lỗi: audit chỉ soát
+  literal trong `t()`, còn đây là chữ máy chủ gửi. Thử bằng
+  `'câu'.replace(/\d[\d.,]*/g,'{}')` trước khi thêm khoá.
+- **Một đường kiểm tra "làm lại cho chắc" phải truyền đủ những gì đường gốc đã
+  truyền.** `CheckAsync` lúc tạo đơn nhận `roomTypeId`; lúc chủ nhà chấp nhận yêu
+  cầu thì gọi lại **thiếu** nó, nên với khách sạn phép kiểm luôn trả "chọn loại
+  phòng" — mọi yêu cầu đặt phòng khách sạn đều không chấp nhận được, mà không test
+  nào đi qua nhánh ấy. Thêm tham số cho một hàm kiểm tra thì `grep` mọi chỗ gọi.
 - **Phép soát của chính mình cũng phải kiểm là nó có soát gì không.** Lượt đầu đối chiếu
   giá ba mặt dùng nhầm tên trường (`totalForStay` thay vì `stayTotal`, và trang chi tiết
   không có khoá `quote`), nên hai trong ba giá trị là `None`, bị lọc đi, và script báo
@@ -966,7 +978,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ## 6. Kiểm chứng trước khi commit
 
 ```bash
-dotnet test tests/StayHost.Domain.Tests            # 1317 test nghiệp vụ
+dotnet test tests/StayHost.Domain.Tests            # 1327 test nghiệp vụ
 dotnet test tests/StayHost.Web.Tests               # 24 test tầng web (GatewayReply, PublicNetworkOnly)
 python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13

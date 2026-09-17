@@ -349,6 +349,10 @@ export const api = {
   loyalty: () => request('/api/account/loyalty'),
   /* Hotel rate plans a host sells each room with. */
   hostRoomTypes: () => request('/api/host/room-types'),
+  createRoomType: body => request('/api/host/room-types', { method: 'POST', body: JSON.stringify(body) }),
+  updateRoomType: (roomId, body) =>
+    request(`/api/host/room-types/${roomId}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteRoomType: roomId => request(`/api/host/room-types/${roomId}`, { method: 'DELETE' }),
   saveRatePlans: (roomId, body) =>
     request(`/api/host/room-types/${roomId}/rate-plans`, { method: 'PUT', body: JSON.stringify(body) }),
   /* Public questions on a listing, answered by its host. */

@@ -750,7 +750,28 @@ function RoomPicker({ rooms }) {
           <div className="room-price">{money(r.pricePerNight)}<span>/ {t('đêm')}</span></div>
         </button>
       ))}
+      <RoomCount room={rooms.find(r => r.id === state.roomTypeId)} />
       <RatePlanOptions room={rooms.find(r => r.id === state.roomTypeId)} />
+    </div>
+  );
+}
+
+/** How many rooms of the chosen kind — up to what is free, and never more than nine. */
+function RoomCount({ room }) {
+  const state = useStore();
+  if (!room || room.available < 2) return null;
+  const max = Math.min(room.available, 9);
+  const n = Math.min(state.roomCount, max);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '10px 0 4px' }}>
+      <span className="cap">{t('Số phòng')}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button className="round-btn" aria-label={t('Bớt một phòng')} disabled={n <= 1}
+                onClick={() => setRatePlan({ roomCount: n - 1 })}>−</button>
+        <b>{n}</b>
+        <button className="round-btn" aria-label={t('Thêm một phòng')} disabled={n >= max}
+                onClick={() => setRatePlan({ roomCount: n + 1 })}>+</button>
+      </div>
     </div>
   );
 }
@@ -824,7 +845,8 @@ function BookPanel({ detail, card }) {
             <button className="round-btn lg" aria-label={t('Giảm số khách')}
                     disabled={totalGuests() <= 1} onClick={() => bumpTotalGuests(-1)}>−</button>
             <button className="round-btn lg" aria-label={t('Tăng số khách')}
-                    disabled={totalGuests() >= card.maxGuests} onClick={() => bumpTotalGuests(1)}>+</button>
+                    disabled={totalGuests() >= card.maxGuests * (state.roomTypeId ? state.roomCount : 1)}
+                    onClick={() => bumpTotalGuests(1)}>+</button>
           </div>
         </div>
       </div>

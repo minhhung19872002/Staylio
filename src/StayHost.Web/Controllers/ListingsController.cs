@@ -304,8 +304,11 @@ public class ListingsController(
         [FromQuery] string? couponCode = null,
         [FromQuery] bool nonRefundable = false,
         [FromQuery] bool breakfast = false,
+        [FromQuery] int rooms = 1,
         CancellationToken ct = default)
     {
+        if (rooms < 1 || rooms > HotelRules.MaxRoomsPerBooking)
+            return BadRequest(new { message = $"Mỗi đơn đặt từ 1 đến {HotelRules.MaxRoomsPerBooking} phòng." });
         var (plan, planError) = await catalog.ResolvePlanAsync(listingId, roomTypeId, nonRefundable, breakfast, ct);
         if (planError is not null) return BadRequest(new { message = planError });
 
@@ -314,7 +317,7 @@ public class ListingsController(
             ? PartySize.Of(guests) with { Infants = infants, Pets = pets }
             : new PartySize(Math.Max(1, adults.Value), children, infants, pets);
 
-        var quote = await catalog.QuoteAsync(listingId, checkIn, checkOut, party, ct, roomTypeId, plan: plan);
+        var quote = await catalog.QuoteAsync(listingId, checkIn, checkOut, party, ct, roomTypeId, plan: plan, rooms: rooms);
         if (quote is null) return NotFound();
 
         // docs/01 ĐP-09 — the quote is where a code is checked, so the guest sees
@@ -331,7 +334,7 @@ public class ListingsController(
 
             quote = check.Ok
                 ? await catalog.QuoteAsync(listingId, checkIn, checkOut, party, ct, roomTypeId,
-                    check.Discount, check.Label, plan: plan)
+                    check.Discount, check.Label, plan: plan, rooms: rooms)
                 : quote with { CouponError = check.Error };
         }
 

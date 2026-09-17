@@ -61,8 +61,13 @@ public class BookingsController(
             : new PartySize(Math.Max(1, req.Adults.Value), req.Children, req.Infants, req.Pets);
 
         // The nine checks of docs/03 §2, in order, stopping at the first failure.
+        if (req.Rooms < 1 || req.Rooms > HotelRules.MaxRoomsPerBooking)
+            return BadRequest(new { message = $"Mỗi đơn đặt từ 1 đến {HotelRules.MaxRoomsPerBooking} phòng." });
+        if (req.Rooms > 1 && req.RoomTypeId is null)
+            return BadRequest(new { message = "Chỉ khách sạn mới đặt được nhiều phòng trong một đơn." });
+
         var check = await rules.CheckAsync(
-            listing, req.CheckIn, req.CheckOut, party, ct, roomTypeId: req.RoomTypeId);
+            listing, req.CheckIn, req.CheckOut, party, ct, roomTypeId: req.RoomTypeId, rooms: req.Rooms);
         if (!check.Ok)
         {
             return check.Reason is Availability.Reason.DatesTaken or Availability.Reason.TurnoverTime
@@ -165,7 +170,7 @@ public class BookingsController(
         var quoteRequest = await catalog.BuildQuoteRequestAsync(
             listing.Id, req.CheckIn, req.CheckOut, party, ct,
             roomTypeId: req.RoomTypeId, nightlyOverride: offer?.NightlyRate, plan: plan,
-            loyaltyPercent: loyaltyPercent);
+            loyaltyPercent: loyaltyPercent, rooms: req.Rooms);
 
         // docs/01 ĐP-09 — a promo code first, evaluated against the stay's total
         // before any reduction. It is refused loudly rather than silently ignored:
@@ -288,6 +293,7 @@ public class BookingsController(
             HostPayout = price.HostPayout,
             PriceLinesJson = SerializeLines(price.Lines),
             RoomTypeId = req.RoomTypeId,
+            Rooms = req.RoomTypeId is null ? 1 : req.Rooms,
             CreditUsed = creditUsed,
             CouponId = couponId,
             CouponDiscount = price.Coupon,
@@ -562,7 +568,8 @@ public class BookingsController(
             booking.ListingId, booking.CheckIn, booking.CheckOut, party, ct, booking.Id, booking.RoomTypeId,
             // docs/01 ĐP-17 — a private offer set the rate, so the re-price uses it
             // rather than the listing's normal price it would otherwise fail against.
-            nightlyOverride: booking.NightlyOverride, plan: booking.Plan, loyaltyPercent: booking.LoyaltyPercent);
+            nightlyOverride: booking.NightlyOverride, plan: booking.Plan, loyaltyPercent: booking.LoyaltyPercent,
+            rooms: booking.Rooms);
 
         // docs/01 ĐP-09 — the promo code committed at the hold is part of the
         // shown price too, so the re-price carries it exactly as quoted. The
@@ -1109,7 +1116,8 @@ public class BookingsController(
     {
         var fresh = await catalog.BuildQuoteRequestAsync(
             booking.ListingId, checkIn, checkOut, party, ct, booking.Id, booking.RoomTypeId,
-            nightlyOverride: booking.NightlyOverride, plan: booking.Plan, loyaltyPercent: booking.LoyaltyPercent);
+            nightlyOverride: booking.NightlyOverride, plan: booking.Plan, loyaltyPercent: booking.LoyaltyPercent,
+            rooms: booking.Rooms);
         if (fresh is null) return null;
 
         if (booking.CouponDiscount > 0)
@@ -1887,7 +1895,7 @@ public class BookingsController(
         var user = await auth.CurrentUserAsync(ct);
         var sid = HttpContext.SessionId();
 
-        var query = db.Bookings.Include(b => b.Payment).Include(b => b.Events).AsQueryable();
+        var query = db.Bookings.Include(b => b.Payment).Include(b => b.Events).Include(b => b.RoomType).AsQueryable();
         if (includeListing)
         {
             query = query
@@ -1978,7 +1986,9 @@ public class BookingsController(
             CashCollectedAt: b.CashCollectedAt)
         {
             Adults = b.Adults, Children = b.Children, Infants = b.Infants, Pets = b.Pets,
-            Details = StayDetailsDto.Of(b)
+            Details = StayDetailsDto.Of(b),
+            Rooms = b.Rooms,
+            RoomTypeName = b.RoomType?.Name
         };
     }
 

@@ -15,6 +15,7 @@ import { MultiCalendar } from './hosting/MultiCalendar.jsx';
 import { Team } from './hosting/Team.jsx';
 import { StayDetailsSummary } from '../components/StayDetailsFields.jsx';
 import { HostQuestions } from '../components/ListingQuestions.jsx';
+import { HotelRoomsManager } from '../components/HotelRoomsManager.jsx';
 
 const TABS = [
   ['today', 'Hôm nay'], ['overview', 'Tổng quan'], ['listings', 'Chỗ nghỉ'],
@@ -130,7 +131,7 @@ export function Hosting() {
           {d.listings.map(l => <ListingCard key={l.id} listing={l} navigate={navigate} />)}
         </div>
       )}
-      {tab === 'listings' && <HotelRatePlans />}
+      {tab === 'listings' && <HotelRoomsManager hotels={d.listings.filter(l => l.typeKey === 'hotel')} />}
       {tab === 'experiences' && <HostExperiences />}
       {tab === 'services' && <HostServices />}
       {tab === 'calendar' && <MultiCalendar />}
@@ -695,65 +696,6 @@ function HostReviews() {
   );
 }
 
-/** Hotel rooms and the rate plans each is sold with. Nothing for a host without a hotel. */
-function HotelRatePlans() {
-  const [rooms, setRooms] = useState(null);
-  const [edits, setEdits] = useState({});
-  const [busyId, setBusyId] = useState(null);
-
-  const load = () => api.hostRoomTypes().then(setRooms).catch(() => setRooms([]));
-  useEffect(() => { load(); }, []);
-
-  if (!rooms?.length) return null;
-
-  const value = (r, key) => edits[r.id]?.[key] ?? r[key];
-  const change = (r, key, v) => setEdits(e => ({ ...e, [r.id]: { ...e[r.id], [key]: v } }));
-  const save = async r => {
-    setBusyId(r.id);
-    try {
-      await api.saveRatePlans(r.id, {
-        nonRefundableDiscountPercent: Number(value(r, 'nonRefundableDiscountPercent')) || 0,
-        breakfastPricePerGuest: Number(value(r, 'breakfastPricePerGuest')) || 0
-      });
-      setEdits(e => ({ ...e, [r.id]: undefined }));
-      await load();
-      toast(t('Đã lưu gói giá.'));
-    } catch (err) { toast(err.message); }
-    finally { setBusyId(null); }
-  };
-
-  return (
-    <div style={{ marginTop: 32 }}>
-      <h2 className="section-title" style={{ fontSize: 20 }}>{t('Gói giá phòng khách sạn')}</h2>
-      <p className="section-sub">{t('Để 0 nếu không bán. Đơn đã đặt giữ nguyên gói lúc đặt.')}</p>
-      <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
-        {rooms.map(r => (
-          <article className="host-booking" key={r.id}>
-            <div style={{ minWidth: 0, flexBasis: '100%' }}>
-              <h3>{r.name}</h3>
-              <div className="meta">{r.listingTitle} · {money(r.pricePerNight)} / {t('đêm')}</div>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10, alignItems: 'flex-end' }}>
-                <label className="form-field" style={{ margin: 0 }}>
-                  <span className="cap">{t('Giảm cho giá không hoàn tiền (%)')}</span>
-                  <input type="number" min={0} max={50} value={value(r, 'nonRefundableDiscountPercent')}
-                         onChange={e => change(r, 'nonRefundableDiscountPercent', e.target.value)} />
-                </label>
-                <label className="form-field" style={{ margin: 0 }}>
-                  <span className="cap">{t('Bữa sáng mỗi khách mỗi đêm (₫)')}</span>
-                  <input type="number" min={0} step={10000} value={value(r, 'breakfastPricePerGuest')}
-                         onChange={e => change(r, 'breakfastPricePerGuest', e.target.value)} />
-                </label>
-                <button className="btn btn-primary btn-sm" disabled={busyId === r.id || !edits[r.id]}
-                        onClick={() => save(r)}>{t('Lưu')}</button>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /* docs/09 §2.5 — Monday is bit 0, exactly as ExperienceRules reads the mask. */
 const WEEKDAYS = [
   ['T2', 0], ['T3', 1], ['T4', 2], ['T5', 3], ['T6', 4], ['T7', 5], ['CN', 6]
@@ -1128,6 +1070,7 @@ function BookingRow({ booking: b, navigate }) {
         )}
         <div className="meta">
           {longDate(b.checkIn)} → {longDate(b.checkOut)} · {b.nights} {t('đêm')} · {b.guests} {t('khách')}
+          {b.roomTypeName && <> · {b.rooms > 1 ? `${b.rooms} × ` : ''}{b.roomTypeName}</>}
         </div>
         <StayDetailsSummary details={b.details} />
         {b.guestNote && <div className="meta">{t('Lời nhắn:')} <i>{b.guestNote}</i></div>}

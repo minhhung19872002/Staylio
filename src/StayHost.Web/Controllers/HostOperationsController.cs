@@ -20,7 +20,7 @@ public class HostOperationsController(
     StayHostDbContext db, AuthService auth, HostAccess access, ShieldService shield,
     BadgeService badges, NotificationService notifications, PaymentGateway gateway,
     CatalogService catalog, PayoutAccounts payoutAccounts, RefundGateway refunds,
-    ILogger<HostOperationsController> log) : ControllerBase
+    BookingService rules, ILogger<HostOperationsController> log) : ControllerBase
 {
     /// <summary>
     /// docs/01 CĐ-06, docs/04 QT-4 — the host answers a guest's request to change
@@ -61,17 +61,31 @@ public class HostOperationsController(
 
         // The dates could have been taken in the meantime; the same exclusion
         // check runs again before anything moves.
-        var clash = await db.Bookings.AnyAsync(b =>
-            b.ListingId == booking.ListingId && b.Id != booking.Id
-            && BookingLifecycle.BlocksDates.Contains(b.Status)
-            && b.CheckIn < change.NewCheckOut && change.NewCheckIn < b.CheckOut, ct);
-        if (clash) return Conflict(new { message = "Ngày mới vừa có người khác đặt. Không đổi được." });
-
         var party = new PartySize(change.NewAdults, change.NewChildren, change.NewInfants, change.NewPets);
+
+        // A hotel counts rooms of a kind; any other booking at the property is
+        // not a clash as long as a room of this kind is still free.
+        var hotelListing = booking.RoomTypeId is null
+            ? null
+            : await db.Listings.FirstOrDefaultAsync(l => l.Id == booking.ListingId && l.Type == PlaceType.Hotel, ct);
+        if (hotelListing is not null)
+        {
+            var fits = await rules.CheckAsync(hotelListing, change.NewCheckIn, change.NewCheckOut, party, ct,
+                ignoreBookingId: booking.Id, roomTypeId: booking.RoomTypeId, rooms: booking.Rooms);
+            if (!fits.Ok) return Conflict(new { message = fits.Message });
+        }
+        else
+        {
+            var clash = await db.Bookings.AnyAsync(b =>
+                b.ListingId == booking.ListingId && b.Id != booking.Id
+                && BookingLifecycle.BlocksDates.Contains(b.Status)
+                && b.CheckIn < change.NewCheckOut && change.NewCheckIn < b.CheckOut, ct);
+            if (clash) return Conflict(new { message = "Ngày mới vừa có người khác đặt. Không đổi được." });
+        }
         var fresh = await catalog.BuildQuoteRequestAsync(
             booking.ListingId, change.NewCheckIn, change.NewCheckOut, party, ct, booking.Id,
             booking.RoomTypeId, nightlyOverride: booking.NightlyOverride, plan: booking.Plan,
-            loyaltyPercent: booking.LoyaltyPercent);
+            loyaltyPercent: booking.LoyaltyPercent, rooms: booking.Rooms);
         if (fresh is null) return NotFound();
         if (booking.CouponDiscount > 0) fresh = fresh with { CouponAmount = booking.CouponDiscount, CouponLabel = "Mã giảm giá" };
         if (booking.CreditUsed > 0) fresh = fresh with { PromotionAmount = booking.CreditUsed, PromotionLabel = "Số dư Staylio" };

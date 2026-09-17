@@ -76,6 +76,9 @@ export function Trip() {
               <Kv label={t('Trả phòng')} value={longDate(b.checkOut)} hint={arrivalHint(b, 'out')} />
               <Kv label={t('Số đêm')} value={`${b.nights} ${t('đêm')}`} />
               <Kv label={t('Khách')} value={`${b.guests} ${t('khách')}`} />
+              {b.roomTypeName && (
+                <Kv label={t('Phòng')} value={`${b.rooms > 1 ? `${b.rooms} × ` : ''}${b.roomTypeName}`} />
+              )}
               <Kv label={t('Chủ nhà')} value={b.hostName} />
               <Kv label={t('Đặt lúc')} value={longDate(b.createdAt.slice(0, 10))} />
             </div>

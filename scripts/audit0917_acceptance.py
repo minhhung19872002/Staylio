@@ -229,7 +229,7 @@ def s_experience_goes_to_gateway():
         for s in (d or {}).get("slots", []):
             starts = datetime.datetime.fromisoformat(s["startsAt"].replace("Z", "+00:00"))
             if starts - datetime.datetime.now(datetime.timezone.utc) > datetime.timedelta(hours=30) \
-                    and s.get("seatsLeft", 1) >= 1:
+                    and s.get("seatsLeft", 1) >= 1 and s.get("status") == "Open":
                 slot = s
                 break
         if slot:
@@ -542,10 +542,17 @@ def l_host_cancel_is_fined():
     s3, _ = call(host, "/api/host/bookings/%d/cancel" % b["id"], {"reason": "Kiem tra phat"})
     after = float(sql("select \"OwedToPlatform\" from hosts where \"Id\"=%d" % host_id))
     fine = round(after - before)
+    # The fine is real debt, taken from this host's next transfers — which other
+    # suites then read as "the host was paid short". Put it back once measured.
+    sql("update hosts set \"OwedToPlatform\" = \"OwedToPlatform\" - %s where \"Id\"=%d" % (after - before, host_id))
     said = any("phí phạt" in c for c in (preview or {}).get("consequences", []))
-    ok("L8. Chủ nhà tự huỷ thì chịu phí phạt (25% khi còn 2–30 ngày)",
-       s3 == 200 and said and fine == round(subtotal * 0.25),
-       "phạt %s trên %s, xem trước có nói: %s" % (fine, subtotal, said))
+    # hold() moves on a week at a time past taken dates, so the stay can land
+    # beyond 30 days out on a busy database — the rate follows the real date.
+    days_out = (datetime.date.fromisoformat(b["checkIn"]) - today()).days
+    rate = 0.10 if days_out > 30 else 0.25
+    ok("L8. Chủ nhà tự huỷ thì chịu phí phạt (25% khi còn 2–30 ngày, 10% khi xa hơn)",
+       s3 == 200 and said and fine == round(subtotal * rate),
+       "còn %s ngày, phạt %s trên %s (mức %s), xem trước có nói: %s" % (days_out, fine, subtotal, rate, said))
 
 
 def l_service_waits_for_the_provider():
@@ -585,6 +592,7 @@ def l_provider_cancel_refunds_credits_and_fines():
     credit = float(sql("select coalesce(sum(\"Amount\"),0) from credit_entries "
                        "where \"UserId\"=%d and \"Reason\"=1" % guest_id))
     fined = float(sql("select \"OwedToPlatform\" from hosts where \"Id\"=%d" % host_id)) - before
+    sql("update hosts set \"OwedToPlatform\" = \"OwedToPlatform\" - %s where \"Id\"=%d" % (fined, host_id))
     ok("L10. Nhà cung cấp huỷ: hoàn đủ, tặng 10% số dư, bị phạt",
        st == 204 and status == "4" and refunded == total
        and credit == round(float(total) * 0.10) and fined > 0 and ledger_ok(),
@@ -821,6 +829,123 @@ def l_child_policy():
         sql('update listings set "ChildrenAllowed"=true where "Id"=%d' % lid)
 
 
+def _hotel():
+    row = sql('select l."Id" || \'|\' || u."Email" from listings l join hosts h on h."Id"=l."HostId" '
+              'join users u on u."Id"=h."UserId" where l."Type"=7 and l."IsPublished" order by l."Id" limit 1')
+    lid, email = row.split("|")
+    return int(lid), email
+
+
+def l_host_manages_room_types():
+    name = "L18. Chủ nhà tự tạo, sửa, xoá loại phòng; giá khách sạn theo phòng rẻ nhất; người lạ không sửa được"
+    lid, email = _hotel()
+    host = sign_in(email)
+    stranger, _ = register("roomx%s@staylio.vn" % RUN, "Nguoi La")
+    room = {"listingId": lid, "name": "Phong Thu %s" % RUN, "summary": "Phong kiem thu", "inventory": 2,
+            "maxGuests": 2, "beds": 1, "sizeSqm": 20, "pricePerNight": 60000, "imageUrl": None,
+            "features": "Ban cong\nBon tam", "nonRefundableDiscountPercent": 5, "breakfastPricePerGuest": 50000}
+    bad, bad_res = call(host, "/api/host/room-types", dict(room, inventory=0))
+    other, _ = call(stranger, "/api/host/room-types", room)
+    st, made = call(host, "/api/host/room-types", room)
+    if st != 200:
+        return ok(name, False, "tạo %s %s" % (st, made))
+    try:
+        cheapest = sql('select "PricePerNight" from listings where "Id"=%d' % lid)
+        s2, upd = call(host, "/api/host/room-types/%d" % made["id"], dict(room, pricePerNight=70000, inventory=3), m="PUT")
+        _, detail = call(opener(), "/api/listings/%d" % lid)
+        shown = next((r for r in detail["roomTypes"] if r["id"] == made["id"]), {})
+    finally:
+        s3, _ = call(host, "/api/host/room-types/%d" % made["id"], m="DELETE")
+    after = sql('select "PricePerNight" from listings where "Id"=%d' % lid)
+    ok(name,
+       bad == 400 and "Số phòng" in (bad_res or {}).get("message", "") and other in (403, 404)
+       and float(cheapest) == 60000 and s2 == 200 and shown.get("inventory") == 3
+       and shown.get("pricePerNight") == 70000 and shown.get("breakfastPricePerGuest") == 50000
+       and s3 == 204 and float(after) > 70000,
+       "sai=%s, người lạ=%s, giá KS khi có phòng rẻ=%s, sửa=%s, trang thấy=%s phòng/%s, xoá=%s, giá KS sau xoá=%s"
+       % (bad, other, cheapest, s2, shown.get("inventory"), shown.get("pricePerNight"), s3, after))
+
+
+def l_several_rooms_in_one_booking():
+    name = "L19. Đặt nhiều phòng một đơn: giá nhân số phòng, trừ đúng tồn kho, không vượt số phòng còn"
+    lid, email = _hotel()
+    host = sign_in(email)
+    # One fixture room, reused by every run: a released hold is still history, so
+    # a fresh room each run could never be deleted and would pile up on the page.
+    # Dearer than any real room, so it never moves the hotel's shown price.
+    existing = sql("select min(\"Id\") from room_types where \"ListingId\"=%d and \"Name\"='Phong nhieu (kiem thu)'" % lid)
+    if existing:
+        rid = int(existing)
+    else:
+        st, made = call(host, "/api/host/room-types", {
+            "listingId": lid, "name": "Phong nhieu (kiem thu)", "summary": "", "inventory": 3, "maxGuests": 2,
+            "beds": 1, "sizeSqm": 18, "pricePerNight": 9000000, "features": ""})
+        if st != 200:
+            return ok(name, False, "tạo phòng %s %s" % (st, made))
+        rid = made["id"]
+    booked = []
+    try:
+        ci = today() + datetime.timedelta(days=150 + int(RUN) % 40)
+        co = ci + datetime.timedelta(days=2)
+        q = "/api/quote?listingId=%d&checkIn=%s&checkOut=%s&adults=4&roomTypeId=%d" % (lid, ci, co, rid)
+        _, one = call(opener(), q.replace("adults=4", "adults=2"))
+        _, two = call(opener(), q + "&rooms=2")
+        body = {"listingId": lid, "checkIn": ci.isoformat(), "checkOut": co.isoformat(), "guests": 4,
+                "adults": 4, "roomTypeId": rid, "agreedToRules": True, "guestName": "Doan",
+                "guestEmail": "doan%s@vidu.vn" % RUN, "guestPhone": "0907%s" % RUN}
+        a = opener()
+        s1, b1 = call(a, "/api/bookings", dict(body, rooms=2))
+        if s1 in (200, 201):
+            booked.append((a, b1["id"]))
+        b = opener()
+        s2, b2 = call(b, "/api/bookings", dict(body, rooms=2))
+        c = opener()
+        s3, b3 = call(c, "/api/bookings", dict(body, rooms=1, guests=2, adults=2))
+        if s3 in (200, 201):
+            booked.append((c, b3["id"]))
+        _, detail = call(opener(), "/api/listings/%d?checkIn=%s&checkOut=%s" % (lid, ci, co))
+        left = next((r["available"] for r in detail["roomTypes"] if r["id"] == rid), None)
+        saved = sql('select "Rooms" from bookings where "Id"=%d' % b1["id"]) if s1 in (200, 201) else None
+        ok(name,
+           two["roomBeforeDiscount"] == one["roomBeforeDiscount"] * 2 and two["rooms"] == 2
+           and s1 in (200, 201) and b1["total"] == two["total"] and saved == "2"
+           and s2 == 409 and "chỉ còn 1 phòng" in (b2 or {}).get("message", "")
+           and s3 in (200, 201) and left == 0,
+           "1 phòng=%s, 2 phòng=%s, đơn 2 phòng=%s (%s), đơn thứ hai=%s %s, đơn 1 phòng=%s, còn=%s"
+           % (one["roomBeforeDiscount"], two["roomBeforeDiscount"], s1, saved, s2,
+              (b2 or {}).get("message"), s3, left))
+    finally:
+        for op_, bid in booked:
+            call(op_, "/api/bookings/%d/release" % bid, m="POST")
+
+
+def l_hotel_request_can_be_accepted():
+    name = "L20. Chủ nhà chấp nhận được yêu cầu đặt phòng khách sạn (trước đây luôn báo \"chọn loại phòng\")"
+    lid, email = _hotel()
+    rid = int(sql('select "Id" from room_types where "ListingId"=%d order by "Id" limit 1' % lid))
+    sql('update listings set "InstantBook"=false where "Id"=%d' % lid)
+    try:
+        guest, _ = register("hreq%s@staylio.vn" % RUN, "Khach Yeu Cau")
+        body = {"listingId": lid, "guests": 2, "adults": 2, "roomTypeId": rid, "agreedToRules": True,
+                "paymentMethod": "card", "cardLast4": "4242"}
+        st, b = None, None
+        for week in range(12):
+            ci = today() + datetime.timedelta(days=90 + int(RUN) % 30 + 7 * week)
+            st, b = call(guest, "/api/bookings", dict(body, checkIn=ci.isoformat(),
+                                                       checkOut=(ci + datetime.timedelta(days=1)).isoformat()))
+            if st != 409:
+                break
+        if st not in (200, 201):
+            return ok(name, False, "yêu cầu %s %s" % (st, b))
+        host = sign_in(email)
+        s2, res = call(host, "/api/host/bookings/%d/confirm" % b["id"], m="POST")
+        status = sql('select "Status" from bookings where "Id"=%d' % b["id"])
+        ok(name, b.get("status") == "PendingHostApproval" and s2 in (200, 204) and status in ("1", "2"),
+           "trước=%s, chấp nhận=%s %s, trạng thái sau=%s" % (b.get("status"), s2, res or "", status))
+    finally:
+        sql('update listings set "InstantBook"=true where "Id"=%d' % lid)
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
@@ -837,7 +962,8 @@ def main():
                       l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings,
                       l_trip_shared_without_the_keys, l_reviews_say_who_and_count_helpful,
                       l_listing_questions, l_hotel_rate_plans, l_loyalty_discount,
-                      l_child_policy]
+                      l_child_policy, l_host_manages_room_types, l_several_rooms_in_one_booking,
+                      l_hotel_request_can_be_accepted]
     for s in scenarios:
         try:
             s()

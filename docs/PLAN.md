@@ -1552,6 +1552,30 @@ bằng yêu cầu đặc biệt. Trang chỗ nghỉ có mục "Trẻ em và giư
 `false`, tức là cả danh mục thành "chỉ người lớn" sau một lần deploy (cùng loại
 lỗi `WorkingDaysMask` ở `CLAUDE.md §4`). L17: **28/28**.
 
+**Khách sạn dùng thật được — loại phòng và nhiều phòng một đơn.**
+- **Chủ nhà tự tạo / sửa / xoá loại phòng** (tên, mô tả, số phòng, khách tối đa,
+  giường, diện tích, giá, ảnh, tiện nghi riêng, gói giá) ở tab Chỗ nghỉ. Trước đó
+  chỉ hai khách sạn seed có loại phòng, nên một khách sạn thật **đăng được mà
+  không bán theo phòng được**. Luật ở `RoomTypeRules`; giá hiển thị của khách sạn
+  luôn là phòng rẻ nhất (`SyncListing`). Không giảm số phòng xuống dưới số đã bán
+  ở một đêm sắp tới; không xoá loại phòng còn đơn sắp tới hoặc đã có lịch sử.
+- **Đặt tối đa 9 phòng cùng loại trong một đơn** (`Booking.Rooms`, migration mặc
+  định **1**). Giá phòng nhân số phòng, mỗi phòng mang theo số khách miễn phụ thu
+  của nó, sức chứa nhân số phòng; tồn kho trừ đúng số phòng
+  (`HotelRules.PeakRooms`), và từ chối nói rõ "chỉ còn N phòng". Khớp giá (`MR-10`)
+  tính theo mỗi phòng mỗi đêm rồi nhân số phòng. **Chưa làm:** nhiều **loại** phòng
+  khác nhau trong một đơn — vẫn phải đặt riêng từng loại.
+
+**Hai lỗi thật tìm ra trong lúc làm:**
+- **Chủ nhà chấp nhận yêu cầu đặt phòng khách sạn luôn thất bại** với "Chọn một
+  loại phòng trước khi đặt": bước kiểm tra lại của `confirm` không truyền
+  `RoomTypeId`. Mọi khách sạn tắt đặt ngay vì thế không nhận được đơn nào.
+- **Đổi lịch một đơn khách sạn bị từ chối** nếu khách sạn có bất kỳ đơn nào khác
+  trùng ngày — nó dùng luật "nguyên căn". Giờ khách sạn kiểm theo tồn kho của
+  đúng loại phòng.
+
+L18–L20: **31/31**.
+
 ---
 
 ## Kiểm chứng

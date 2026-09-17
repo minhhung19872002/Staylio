@@ -587,6 +587,8 @@ public record HostBookingDto(
     string? GuestPhone = null)
 {
     public StayDetailsDto? Details { get; init; }
+    public int Rooms { get; init; } = 1;
+    public string? RoomTypeName { get; init; }
 }
 
 public record PendingChangeDto(
@@ -1534,6 +1536,7 @@ public record QuoteDto(
 {
     public decimal BreakfastFee { get; init; }
     public bool NonRefundableRate { get; init; }
+    public int Rooms { get; init; } = 1;
 }
 
 /// <summary>Card details captured when the guest actually pays, not when the hold started.</summary>
@@ -1639,7 +1642,9 @@ public record CreateBookingRequest(
     IReadOnlyList<string>? SpecialRequests = null,
     /// <summary>Hotel rate plan: the non-refundable rate, and breakfast.</summary>
     bool NonRefundableRate = false,
-    bool Breakfast = false);
+    bool Breakfast = false,
+    /// <summary>Hotel rooms of the chosen kind, booked together.</summary>
+    int Rooms = 1);
 
 public record ShareTripRequest(string? Email, string? Name);
 
@@ -1751,6 +1756,8 @@ public record BookingDto(
     public int Infants { get; init; }
     public int Pets { get; init; }
     public StayDetailsDto? Details { get; init; }
+    public int Rooms { get; init; } = 1;
+    public string? RoomTypeName { get; init; }
 }
 
 public record BookingEventDto(
