@@ -190,6 +190,16 @@ export function FiltersModal() {
                   onClick={() => { set({ freeCancellationOnly: !state.freeCancellationOnly }); applySearch(); }}>
             <Icon name="heart" size={17} /> {t('Huỷ miễn phí')}
           </button>
+          <button className={`pill ${state.breakfastOnly ? 'is-on' : ''}`}
+                  aria-pressed={state.breakfastOnly}
+                  onClick={() => { set({ breakfastOnly: !state.breakfastOnly }); applySearch(); }}>
+            {t('Có bữa sáng')}
+          </button>
+          <button className={`pill ${state.dealsOnly ? 'is-on' : ''}`}
+                  aria-pressed={state.dealsOnly}
+                  onClick={() => { set({ dealsOnly: !state.dealsOnly }); applySearch(); }}>
+            {t('Đang có ưu đãi')}
+          </button>
           <button className={`pill ${state.payAtPropertyOnly ? 'is-on' : ''}`}
                   aria-pressed={state.payAtPropertyOnly}
                   onClick={() => { set({ payAtPropertyOnly: !state.payAtPropertyOnly }); applySearch(); }}>
@@ -206,6 +216,22 @@ export function FiltersModal() {
                     aria-pressed={state.minRating === value}
                     onClick={() => { set({ minRating: value }); applySearch(); }}>{t(label)}</button>
           ))}
+        </div>
+      </section>
+
+      <section className="modal-section">
+        <h3>{t('Hạng sao khách sạn')}</h3>
+        <div className="pill-row" style={{ marginTop: 14 }}>
+          {[3, 4, 5].map(n => {
+            const on = state.stars.includes(n);
+            return (
+              <button key={n} className={`pill ${on ? 'is-on' : ''}`} aria-pressed={on}
+                      onClick={() => {
+                        set({ stars: on ? state.stars.filter(x => x !== n) : [...state.stars, n] });
+                        applySearch();
+                      }}>{'★'.repeat(n)}</button>
+            );
+          })}
         </div>
       </section>
 

@@ -24,6 +24,9 @@ export function searchToQuery() {
   if (state.minRating) usp.set('minRating', String(state.minRating));
   if (state.payAtPropertyOnly) usp.set('payAtProperty', '1');
   if (state.maxCentreKm) usp.set('maxCentreKm', String(state.maxCentreKm));
+  if (state.stars.length) usp.set('stars', state.stars.join(','));
+  if (state.breakfastOnly) usp.set('breakfast', '1');
+  if (state.dealsOnly) usp.set('deals', '1');
   if (state.stay !== 'exact') usp.set('stay', state.stay);
   if (state.flexDays) usp.set('flex', String(state.flexDays));
   if (state.stay === 'months') usp.set('months', String(state.stayMonths));
@@ -52,6 +55,9 @@ export function queryToSearch(search) {
   state.minRating = Number(usp.get('minRating')) || 0;
   state.payAtPropertyOnly = usp.get('payAtProperty') === '1';
   state.maxCentreKm = Number(usp.get('maxCentreKm')) || 0;
+  state.stars = (usp.get('stars') ?? '').split(',').map(Number).filter(n => n >= 1 && n <= 5);
+  state.breakfastOnly = usp.get('breakfast') === '1';
+  state.dealsOnly = usp.get('deals') === '1';
 
   if (state.meta) {
     state.minPrice = Number(usp.get('minPrice')) || state.meta.minPrice;

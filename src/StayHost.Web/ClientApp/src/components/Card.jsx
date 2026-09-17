@@ -138,7 +138,14 @@ function SearchBody({ card }) {
         {card.reviewCount ? `★ ${card.rating.toFixed(2)} (${card.reviewCount})` : `★ ${t('Mới')}`}
       </div>
     </div>
-    <div className="card-sub card-name"><TranslatedText as="span" text={card.title} notice={false} /></div>
+    <div className="card-sub card-name">
+      <TranslatedText as="span" text={card.title} notice={false} />
+      {card.hotelStars > 0 && (
+        <span aria-label={t('{} sao').replace('{}', card.hotelStars)} style={{ marginLeft: 6, color: 'var(--brand)' }}>
+          {'★'.repeat(card.hotelStars)}
+        </span>
+      )}
+    </div>
     <div className="card-sub">{card.bedrooms} {t('phòng ngủ')} · {card.beds} {t('giường')} · {card.bathrooms} {t('phòng tắm')}</div>
     <div className="card-price">
       {original && <><s>{money(original)}</s> </>}

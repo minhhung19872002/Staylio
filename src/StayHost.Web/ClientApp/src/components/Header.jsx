@@ -525,6 +525,7 @@ function QuickBar() {
         <div className="quick-scroll" id="cat-scroll">
           <button className={`quick-chip ${state.instantBookOnly ? 'is-on' : ''}`} onClick={() => flag('instantBookOnly')}>{t('Đặt ngay')}</button>
           <button className={`quick-chip ${state.freeCancellationOnly ? 'is-on' : ''}`} onClick={() => flag('freeCancellationOnly')}>{t('Huỷ miễn phí')}</button>
+          <button className={`quick-chip ${state.dealsOnly ? 'is-on' : ''}`} onClick={() => flag('dealsOnly')}>{t('Ưu đãi')}</button>
           <button className={`quick-chip ${state.guestFavoriteOnly ? 'is-on' : ''}`} onClick={() => flag('guestFavoriteOnly')}>{t('Khách yêu thích')}</button>
           <button className={`quick-chip ${state.superhostOnly ? 'is-on' : ''}`} onClick={() => flag('superhostOnly')}>{t('Siêu chủ nhà')}</button>
           {chips.map(a => (

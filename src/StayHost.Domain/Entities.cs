@@ -331,6 +331,9 @@ public class Listing
     /// </summary>
     public bool AcceptsPayAtProperty { get; set; }
 
+    /// <summary>A hotel's official star class, 1–5; 0 for unrated and for every non-hotel.</summary>
+    public int HotelStars { get; set; }
+
     /// <summary>docs/01 ĐP-03 — instant book only for identity-verified guests.</summary>
     public bool InstantBookRequiresVerified { get; set; }
     /// <summary>docs/01 ĐP-03 — instant book only for guests with good reviews.</summary>

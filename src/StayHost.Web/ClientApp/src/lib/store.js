@@ -37,6 +37,9 @@ export const state = {
   minRating: 0,            // 4.5 / 4 / 3.5, 0 = any
   payAtPropertyOnly: false, // "không cần trả trước"
   maxCentreKm: 0,          // 1 / 3 / 5, 0 = any
+  stars: [],               // hotel star classes wanted
+  breakfastOnly: false,
+  dealsOnly: false,
 
   // reference data
   meta: null,
@@ -265,6 +268,7 @@ export function isDiscovery() {
     && !state.instantBookOnly && !state.freeCancellationOnly
     && state.hostLanguages.length === 0
     && !state.minRating && !state.payAtPropertyOnly && !state.maxCentreKm
+    && !state.stars.length && !state.breakfastOnly && !state.dealsOnly
     && (!state.meta || (state.minPrice <= state.meta.minPrice && state.maxPrice >= state.meta.maxPrice));
 }
 
@@ -286,6 +290,9 @@ export function activeFilterCount() {
   if (state.minRating) n++;
   if (state.payAtPropertyOnly) n++;
   if (state.maxCentreKm) n++;
+  if (state.stars.length) n++;
+  if (state.breakfastOnly) n++;
+  if (state.dealsOnly) n++;
   return n;
 }
 
@@ -306,6 +313,9 @@ export function resetFilters() {
     minRating: 0,
     payAtPropertyOnly: false,
     maxCentreKm: 0,
+    stars: [],
+    breakfastOnly: false,
+    dealsOnly: false,
     minPrice: meta ? meta.minPrice : 0,
     maxPrice: meta ? meta.maxPrice : 0
   });
@@ -435,6 +445,9 @@ export function searchParams(page = 1) {
     minRating: state.minRating || undefined,
     payAtProperty: state.payAtPropertyOnly || undefined,
     maxCentreKm: state.maxCentreKm || undefined,
+    stars: state.stars.length ? state.stars : undefined,
+    breakfast: state.breakfastOnly || undefined,
+    deals: state.dealsOnly || undefined,
     page,
     pageSize: 24
   };

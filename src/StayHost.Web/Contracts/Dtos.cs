@@ -342,7 +342,8 @@ public record HostListingDto(
     bool AcceptsPayAtProperty = false,
     /// <summary>docs/01 AT-01 — review stance, so the host sees "Đang chờ duyệt" / "Bị từ chối".</summary>
     string ReviewStatus = "Approved",
-    string? ReviewNote = null);
+    string? ReviewNote = null,
+    int HotelStars = 0);
 
 /// <summary>The host-settable half of docs/03 §1 — discounts and surcharges.</summary>
 public record PricingRulesDto(
@@ -403,7 +404,9 @@ public record SaveListingRequest(
     int WizardStep = 0,
     bool IsComplete = true,
     /// <summary>docs/01 CĐ-03 — omitted by older clients; the guide is then left alone.</summary>
-    CheckInSetupDto? CheckIn = null);
+    CheckInSetupDto? CheckIn = null,
+    /// <summary>A hotel's star class; ignored for other kinds of place.</summary>
+    int HotelStars = 0);
 
 /// <summary>
 /// docs/01 CĐ-03 and CĐ-04 — the arrival guide as the host fills it in. Times
@@ -1058,6 +1061,8 @@ public record ListingCardDto(
     public int LoyaltyOffer { get; init; }
     /// <summary>What the current viewer gets here, already in the priced total.</summary>
     public int LoyaltyPercent { get; init; }
+    /// <summary>A hotel's star class; 0 when unrated or not a hotel.</summary>
+    public int HotelStars { get; init; }
 }
 
 public record HomeSectionDto(

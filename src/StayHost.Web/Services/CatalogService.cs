@@ -321,7 +321,13 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
         /// <summary>Only places within this many km of their city's centre.</summary>
         double? MaxCentreKm = null,
         /// <summary>Listing ids within <see cref="MaxCentreKm"/>, resolved by <see cref="ResolveAreaAsync"/>.</summary>
-        IReadOnlySet<int>? NearCentre = null);
+        IReadOnlySet<int>? NearCentre = null,
+        /// <summary>Hotel star classes wanted; a place matches if it has any of them.</summary>
+        IReadOnlyList<int>? Stars = null,
+        /// <summary>Breakfast available: the free-breakfast amenity, or a hotel room that sells it.</summary>
+        bool BreakfastOnly = false,
+        /// <summary>Something off the price right now — a promotion, an early-bird, last-minute or loyalty rate.</summary>
+        bool DealsOnly = false);
 
     /// <summary>The visible map rectangle, when the guest is searching by moving it.</summary>
     public readonly record struct MapBounds(double South, double West, double North, double East);
@@ -430,6 +436,14 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
         if (q.MinRating is > 0 and var minRating)
             query = query.Where(l => l.ReviewCount > 0 && l.Rating >= minRating);
         if (q.PayAtPropertyOnly) query = query.Where(l => l.AcceptsPayAtProperty);
+        if (q.Stars is { Count: > 0 } stars)
+            query = query.Where(l => stars.Contains(l.HotelStars));
+        if (q.BreakfastOnly)
+            query = query.Where(l => l.Amenities.Any(a => a.Amenity!.Key == "breakfast")
+                                     || db.RoomTypes.Any(r => r.ListingId == l.Id && r.BreakfastPricePerGuest > 0));
+        if (q.DealsOnly)
+            query = query.Where(l => l.DiscountPercent > 0 || l.EarlyBirdPercent > 0
+                                     || l.LastMinutePercent > 0 || l.LoyaltyDiscountPercent > 0);
         if (q.NearCentre is { } near)
             query = query.Where(l => near.Contains(l.Id));
 
@@ -820,6 +834,9 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
         if (q.MinRating is > 0) candidates.Add(("minRating", "Điểm đánh giá"));
         if (q.PayAtPropertyOnly) candidates.Add(("payAtProperty", "Không cần trả trước"));
         if (q.MaxCentreKm is > 0) candidates.Add(("maxCentreKm", "Khoảng cách tới trung tâm"));
+        if (q.Stars is { Count: > 0 }) candidates.Add(("stars", "Hạng sao khách sạn"));
+        if (q.BreakfastOnly) candidates.Add(("breakfast", "Có bữa sáng"));
+        if (q.DealsOnly) candidates.Add(("deals", "Đang có ưu đãi"));
         if (q.Bedrooms is > 0 || q.Beds is > 0 || q.Bathrooms is > 0) candidates.Add(("rooms", "Số phòng và giường"));
         if (!string.IsNullOrWhiteSpace(q.RoomType) && q.RoomType != "any") candidates.Add(("roomType", "Loại nơi ở"));
         if (!string.IsNullOrWhiteSpace(q.Category) && q.Category != "all") candidates.Add(("category", "Loại chỗ ở"));
@@ -888,6 +905,9 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
         "minRating" => q with { MinRating = null },
         "payAtProperty" => q with { PayAtPropertyOnly = false },
         "maxCentreKm" => q with { MaxCentreKm = null, NearCentre = null },
+        "stars" => q with { Stars = null },
+        "breakfast" => q with { BreakfastOnly = false },
+        "deals" => q with { DealsOnly = false },
         _ => q
     };
 
@@ -1029,6 +1049,7 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
             ? $"Cách trung tâm {Landmarks.DistanceLabel(d)}" : null,
         PayAtProperty = l.AcceptsPayAtProperty,
         LoyaltyOffer = l.LoyaltyDiscountPercent,
+        HotelStars = l.HotelStars,
         LoyaltyPercent = Loyalty.PercentFor(pricer?.LoyaltyLevel ?? 0, l.LoyaltyDiscountPercent)
     };
 

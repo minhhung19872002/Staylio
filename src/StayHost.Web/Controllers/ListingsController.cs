@@ -91,6 +91,9 @@ public class ListingsController(
         [FromQuery] double? minRating = null,
         [FromQuery] bool payAtProperty = false,
         [FromQuery] double? maxCentreKm = null,
+        [FromQuery] string? stars = null,
+        [FromQuery] bool breakfast = false,
+        [FromQuery] bool deals = false,
         CancellationToken ct = default)
     {
         var query = BuildQuery(
@@ -99,7 +102,11 @@ public class ListingsController(
             checkIn, checkOut, south, west, north, east, page, pageSize,
             Flexible(stay, flex, months, startMonths, checkIn, checkOut), hostLanguages, polygon,
             infants, pets)
-            with { MinRating = minRating, PayAtPropertyOnly = payAtProperty, MaxCentreKm = maxCentreKm };
+            with
+            {
+                MinRating = minRating, PayAtPropertyOnly = payAtProperty, MaxCentreKm = maxCentreKm,
+                Stars = StarList(stars), BreakfastOnly = breakfast, DealsOnly = deals
+            };
 
         return Ok(await catalog.SearchAsync(query, HttpContext.SessionId(), ct));
     }
@@ -128,15 +135,31 @@ public class ListingsController(
         [FromQuery] double? minRating = null,
         [FromQuery] bool payAtProperty = false,
         [FromQuery] double? maxCentreKm = null,
+        [FromQuery] string? stars = null,
+        [FromQuery] bool breakfast = false,
+        [FromQuery] bool deals = false,
         CancellationToken ct = default)
     {
         var query = BuildQuery(
             q, category, minPrice, maxPrice, guests, amenities, "reco", roomType,
             bedrooms, beds, bathrooms, superhost, guestFavorite, instantBook, freeCancellation,
             null, null, null, null, null, null, 1, 1, null, hostLanguages)
-            with { MinRating = minRating, PayAtPropertyOnly = payAtProperty, MaxCentreKm = maxCentreKm };
+            with
+            {
+                MinRating = minRating, PayAtPropertyOnly = payAtProperty, MaxCentreKm = maxCentreKm,
+                Stars = StarList(stars), BreakfastOnly = breakfast, DealsOnly = deals
+            };
 
         return Ok(new { total = await catalog.CountAsync(query, ct) });
+    }
+
+    private static List<int>? StarList(string? stars)
+    {
+        var list = (stars ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => int.TryParse(s, out var n) ? n : 0)
+            .Where(n => n is >= 1 and <= 5)
+            .Distinct().ToList();
+        return list.Count == 0 ? null : list;
     }
 
     private static CatalogService.SearchQuery BuildQuery(

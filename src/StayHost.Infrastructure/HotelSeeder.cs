@@ -56,6 +56,7 @@ public static class HotelSeeder
                 InstantBook = true,
                 IsPublished = true,
                 IsComplete = true,
+                HotelStars = StarsFor(cheapest),
                 Rating = 4.75 + i * 0.05,
                 ReviewCount = 120 + i * 40,
                 CancellationTier = CancellationTier.Moderate,
@@ -119,6 +120,10 @@ public static class HotelSeeder
                     "https://images.pexels.com/photos/2506988/pexels-photo-2506988.jpeg")
             ])
     ];
+
+    /// <summary>A plausible class for a demo hotel, from its cheapest room.</summary>
+    internal static int StarsFor(decimal cheapest) =>
+        cheapest >= 2_000_000m ? 5 : cheapest >= 1_000_000m ? 4 : 3;
 
     /// <summary>About an eighth of the room, in round tens of thousands, never below 80.000 ₫.</summary>
     internal static decimal BreakfastFor(decimal roomPrice) =>

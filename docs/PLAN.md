@@ -1535,6 +1535,14 @@ người xem, và chủ nhà duyệt đổi lịch không được làm đơn m�
 Frontend: khoá cache trang chủ có thêm người xem, và đăng nhập/đăng xuất tính lại
 mọi giá đang hiện. Trang cài đặt có nhóm "Staylio Thân thiết". L16: **26/26**.
 
+**Đối chiếu Booking.com — hạng sao, bữa sáng, ưu đãi.** Khách sạn có **hạng sao**
+(1–5, chỉ loại hình khách sạn mới lưu được; chọn trong bước loại hình của trình
+đăng tin), hiện cạnh tên trên thẻ và lọc được. Lọc **"Có bữa sáng"** khớp tiện
+nghi bữa sáng miễn phí **hoặc** một loại phòng bán bữa sáng; **"Đang có ưu đãi"**
+khớp tin có giảm giá khuyến mãi, đặt sớm, phút chót hoặc Staylio Thân thiết — có
+thêm nút nhanh "Ưu đãi" trên thanh lọc. Khách sạn mẫu được gắn sao theo giá phòng
+rẻ nhất (seed + migration `HotelStars`). H12: **27/27**.
+
 ---
 
 ## Kiểm chứng

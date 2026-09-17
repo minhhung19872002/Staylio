@@ -337,6 +337,9 @@ function Empty({ noResults }) {
       minRating: () => set({ minRating: 0 }),
       payAtProperty: () => set({ payAtPropertyOnly: false }),
       maxCentreKm: () => set({ maxCentreKm: 0 }),
+      stars: () => set({ stars: [] }),
+      breakfast: () => set({ breakfastOnly: false }),
+      deals: () => set({ dealsOnly: false }),
       hostLanguages: () => set({ hostLanguages: [] }),
       category: () => set({ category: 'all' })
     }[key];

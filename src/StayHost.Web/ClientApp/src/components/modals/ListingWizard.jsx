@@ -67,7 +67,7 @@ const BLANK = {
   bedrooms: 1, beds: 1, bathrooms: 1, maxGuests: 2,
   pricePerNight: 800000, cleaningFee: 200000, minNights: 1,
   instantBook: true, instantBookRequiresVerified: false, instantBookRequiresGoodReviews: false,
-  requireGuestPhoto: false, requireVerifiedToBook: false, acceptsPayAtProperty: false,
+  requireGuestPhoto: false, requireVerifiedToBook: false, acceptsPayAtProperty: false, hotelStars: 0,
   isPublished: false, cancellationTier: 'Moderate',
   description: '', highlight: '', images: [], imageCaptions: [], amenityKeys: [],
   latitude: null, longitude: null,
@@ -316,6 +316,18 @@ function StepType({ form, field, meta }) {
         ))}
       </div>
     </section>
+
+    {form.typeKey === 'hotel' && (
+      <section className="modal-section">
+        <h3>{t('Hạng sao khách sạn')}</h3>
+        <div className="pill-row" style={{ marginTop: 14 }}>
+          {[0, 1, 2, 3, 4, 5].map(n => (
+            <button key={n} type="button" className={`pill ${(form.hotelStars ?? 0) === n ? 'is-on' : ''}`}
+                    onClick={() => field('hotelStars', n)}>{n ? '★'.repeat(n) : t('Chưa xếp hạng')}</button>
+          ))}
+        </div>
+      </section>
+    )}
 
     <section className="modal-section">
       <h3>{t('Khách được dùng bao nhiêu?')}</h3>

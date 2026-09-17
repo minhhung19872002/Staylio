@@ -337,6 +337,24 @@ def s_search_filters_like_booking():
        % (rated["total"], cash["total"], near["total"], counted["total"], kms[:6]))
 
 
+def s_stars_breakfast_deals():
+    """Hotel stars, breakfast, deals — filters that must agree with what the cards say."""
+    name = "H12. Lọc hạng sao, có bữa sáng, đang có ưu đãi; đếm khớp danh sách"
+    op = opener()
+    _, starred = call(op, "/api/listings?pageSize=60&stars=4,5")
+    _, count = call(op, "/api/listings/count?stars=4,5")
+    _, fed = call(op, "/api/listings?pageSize=60&breakfast=true")
+    _, deals = call(op, "/api/listings?pageSize=60&deals=true")
+    _, everything = call(op, "/api/listings?pageSize=60")
+    ok(name,
+       starred["total"] > 0 and all(c["hotelStars"] in (4, 5) for c in starred["items"])
+       and count["total"] == starred["total"]
+       and fed["total"] > 0 and deals["total"] <= everything["total"]
+       and all(c.get("hotelStars", 0) == 0 or c["typeKey"] == "hotel" for c in everything["items"]),
+       "4–5 sao: %s (đếm %s), có bữa sáng: %s, ưu đãi: %s/%s"
+       % (starred["total"], count["total"], fed["total"], deals["total"], everything["total"]))
+
+
 def s_ical_is_public_only():
     op = sign_in("host1@staylio.vn")
     if op is None:
@@ -784,7 +802,8 @@ def main():
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
                  s_catalogue_only_takes_money, s_hosting_links, s_experience_goes_to_gateway,
                  s_shield_is_private, s_verify_link_not_in_response, s_ical_is_public_only,
-                 s_stay_details_reach_the_host, s_search_filters_like_booking]
+                 s_stay_details_reach_the_host, s_search_filters_like_booking,
+                 s_stars_breakfast_deals]
     if LOCAL:
         forget_fixture_cancellations()
         scenarios += [l_cohost_needs_confirmed_email, l_phone_change_resets_confirmation,

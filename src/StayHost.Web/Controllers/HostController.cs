@@ -688,6 +688,7 @@ public class HostController(
             RequireGuestPhoto = src.RequireGuestPhoto,
             RequireVerifiedToBook = src.RequireVerifiedToBook,
             AcceptsPayAtProperty = src.AcceptsPayAtProperty,
+            HotelStars = src.HotelStars,
             CancellationTier = src.CancellationTier,
             Description = src.Description,
             SpaceHighlight = src.SpaceHighlight,
@@ -986,6 +987,8 @@ public class HostController(
         // docs/07 §2.5 — never turned on by the platform; the protection given up
         // is the host's own (PayAtProperty.HostWarning).
         listing.AcceptsPayAtProperty = r.AcceptsPayAtProperty;
+        // Stars belong to hotels only; any other place stays unrated.
+        listing.HotelStars = listing.Type == PlaceType.Hotel ? Math.Clamp(r.HotelStars, 0, 5) : 0;
 
         // docs/08 §5.2 and §5.5 — a listing the sanction hid stays hidden until
         // an admin restores it; the host flipping the switch is not a restore.
@@ -1178,7 +1181,7 @@ public class HostController(
             l.ApplianceNotes, l.DoorCode, l.HostPhone),
         l.InstantBookRequiresVerified, l.InstantBookRequiresGoodReviews,
         l.RequireGuestPhoto, l.RequireVerifiedToBook, l.AcceptsPayAtProperty,
-        l.ReviewStatus.ToString(), l.ReviewNote);
+        l.ReviewStatus.ToString(), l.ReviewNote, l.HotelStars);
 
     private static readonly System.Text.Json.JsonSerializerOptions LayoutJson =
         new(System.Text.Json.JsonSerializerDefaults.Web);
