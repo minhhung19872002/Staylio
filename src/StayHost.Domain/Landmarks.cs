@@ -114,6 +114,48 @@ public static class Landmarks
             ? $"{Math.Round(km * 1000 / 50) * 50:0} m"
             : $"{km:0.#} km".Replace('.', ',');
 
+    /// <summary>
+    /// Where "the centre" is, for the "cách trung tâm x km" line and the
+    /// distance filter and sort. The point a local would call the middle of
+    /// town, not the geometric centroid of its boundary.
+    /// </summary>
+    private static readonly (string City, double Latitude, double Longitude)[] Centres =
+    [
+        ("Đà Nẵng", 16.0614, 108.2270),        // Cầu Rồng
+        ("Hội An", 15.8801, 108.3380),         // Phố cổ
+        ("Đà Lạt", 11.9425, 108.4370),         // Chợ Đà Lạt
+        ("Nha Trang", 12.2450, 109.1940),
+        ("TP. Hồ Chí Minh", 10.7720, 106.6980), // Chợ Bến Thành
+        ("Hà Nội", 21.0287, 105.8524),         // Hồ Hoàn Kiếm
+        ("Huế", 16.4690, 107.5920),
+        ("Phú Quốc", 10.2170, 103.9600),       // Dương Đông
+        ("Sa Pa", 22.3360, 103.8440),
+        ("Quy Nhơn", 13.7760, 109.2230),
+        ("Phan Thiết", 10.9280, 108.1020),
+        ("Vũng Tàu", 10.3460, 107.0840),
+        ("Hạ Long", 20.9510, 107.0800),
+        ("Cần Thơ", 10.0340, 105.7880),
+        ("Côn Đảo", 8.6830, 106.6090),
+        ("Hải Phòng", 20.8560, 106.6830),
+        ("Ninh Bình", 20.2540, 105.9750),
+        ("Hà Giang", 22.8230, 104.9840),
+        ("Mũi Né", 10.9330, 108.2870),
+        ("Tam Đảo", 21.4560, 105.6450)
+    ];
+
+    /// <summary>Kilometres from the listing to its own city's centre, or null when that centre is not known.</summary>
+    public static double? FromCentreKm(string? city, double latitude, double longitude)
+    {
+        var key = StayHost.Domain.Cities.Key(city);
+        if (key.Length == 0) return null;
+        foreach (var c in Centres)
+        {
+            if (StayHost.Domain.Cities.Key(c.City) == key)
+                return Ranking.DistanceKm(latitude, longitude, c.Latitude, c.Longitude);
+        }
+        return null;
+    }
+
     /// <summary>Every city this list can say anything about.</summary>
     public static IReadOnlyList<string> Cities =>
         All.Select(l => l.City).Distinct().OrderBy(c => c).ToList();

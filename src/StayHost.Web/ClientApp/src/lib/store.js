@@ -34,6 +34,9 @@ export const state = {
   instantBookOnly: false,
   freeCancellationOnly: false,
   hostLanguages: [],   // docs/01 TM-18
+  minRating: 0,            // 4.5 / 4 / 3.5, 0 = any
+  payAtPropertyOnly: false, // "không cần trả trước"
+  maxCentreKm: 0,          // 1 / 3 / 5, 0 = any
 
   // reference data
   meta: null,
@@ -256,6 +259,7 @@ export function isDiscovery() {
     && !state.superhostOnly && !state.guestFavoriteOnly
     && !state.instantBookOnly && !state.freeCancellationOnly
     && state.hostLanguages.length === 0
+    && !state.minRating && !state.payAtPropertyOnly && !state.maxCentreKm
     && (!state.meta || (state.minPrice <= state.meta.minPrice && state.maxPrice >= state.meta.maxPrice));
 }
 
@@ -274,6 +278,9 @@ export function activeFilterCount() {
   if (state.instantBookOnly) n++;
   if (state.freeCancellationOnly) n++;
   if (state.hostLanguages.length) n++;
+  if (state.minRating) n++;
+  if (state.payAtPropertyOnly) n++;
+  if (state.maxCentreKm) n++;
   return n;
 }
 
@@ -291,6 +298,9 @@ export function resetFilters() {
     instantBookOnly: false,
     freeCancellationOnly: false,
     hostLanguages: [],
+    minRating: 0,
+    payAtPropertyOnly: false,
+    maxCentreKm: 0,
     minPrice: meta ? meta.minPrice : 0,
     maxPrice: meta ? meta.maxPrice : 0
   });
@@ -417,6 +427,9 @@ export function searchParams(page = 1) {
     instantBook: state.instantBookOnly || undefined,
     freeCancellation: state.freeCancellationOnly || undefined,
     hostLanguages: state.hostLanguages.length ? state.hostLanguages : undefined,
+    minRating: state.minRating || undefined,
+    payAtProperty: state.payAtPropertyOnly || undefined,
+    maxCentreKm: state.maxCentreKm || undefined,
     page,
     pageSize: 24
   };

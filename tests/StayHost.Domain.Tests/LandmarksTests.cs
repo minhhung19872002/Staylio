@@ -95,4 +95,17 @@ public class LandmarksTests
         Assert.Equal(0, onIt.DistanceKm, 3);
         Assert.Equal("0 m", Landmarks.DistanceLabel(onIt.DistanceKm));
     }
+
+    [Fact]
+    public void Distance_to_the_centre_matches_the_city_however_it_was_typed()
+    {
+        var km = Landmarks.FromCentreKm("Thành phố Hồ Chí Minh", 10.7720, 106.6980);
+        Assert.NotNull(km);
+        Assert.True(km < 0.01);
+        Assert.InRange(Landmarks.FromCentreKm("Hà Nội", 21.0287, 105.8624)!.Value, 0.9, 1.2);
+    }
+
+    [Fact]
+    public void A_city_without_a_known_centre_has_no_distance() =>
+        Assert.Null(Landmarks.FromCentreKm("Làng Không Tên", 10, 106));
 }

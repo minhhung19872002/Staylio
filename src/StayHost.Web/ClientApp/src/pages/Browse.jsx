@@ -334,6 +334,10 @@ function Empty({ noResults }) {
       guestFavorite: () => set({ guestFavoriteOnly: false }),
       instantBook: () => set({ instantBookOnly: false }),
       freeCancellation: () => set({ freeCancellationOnly: false }),
+      minRating: () => set({ minRating: 0 }),
+      payAtProperty: () => set({ payAtPropertyOnly: false }),
+      maxCentreKm: () => set({ maxCentreKm: 0 }),
+      hostLanguages: () => set({ hostLanguages: [] }),
       category: () => set({ category: 'all' })
     }[key];
 
@@ -343,30 +347,30 @@ function Empty({ noResults }) {
 
   return (
     <div className="empty-state">
-      <h3>Không tìm thấy chỗ nghỉ phù hợp</h3>
+      <h3>{t('Không tìm thấy chỗ nghỉ phù hợp')}</h3>
 
       {blocking.length ? <>
-        <p>Bỏ một trong các bộ lọc sau là có kết quả ngay:</p>
+        <p>{t('Bỏ một trong các bộ lọc sau là có kết quả ngay:')}</p>
         <div className="pill-row" style={{ justifyContent: 'center', marginTop: 14 }}>
           {blocking.map(f => (
             <button className="pill" key={f.key} onClick={() => drop(f.key)}>
-              Bỏ “{f.label}” · {f.count} chỗ nghỉ
+              {t('Bỏ “{}” · {} chỗ nghỉ').replace('{}', t(f.label)).replace('{}', f.count)}
             </button>
           ))}
         </div>
       </> : (
         <p>{filters
-          ? 'Thử nới giá hoặc bỏ bớt tiện nghi trong bộ lọc.'
-          : 'Thử một điểm đến khác hoặc đổi ngày.'}</p>
+          ? t('Thử nới giá hoặc bỏ bớt tiện nghi trong bộ lọc.')
+          : t('Thử một điểm đến khác hoặc đổi ngày.')}</p>
       )}
 
       {!!nearby.length && <>
-        <p style={{ marginTop: 22 }}>Hoặc xem khu vực lân cận:</p>
+        <p style={{ marginTop: 22 }}>{t('Hoặc xem khu vực lân cận:')}</p>
         <div className="pill-row" style={{ justifyContent: 'center', marginTop: 12 }}>
           {nearby.map(a => (
             <button className="pill" key={a.city}
                     onClick={() => { set({ q: a.city, searchArea: null, searchPolygon: null }); applySearch({ replace: false }); }}>
-              {a.city} · {a.count} chỗ · từ {money(a.fromPrice)}
+              {a.city} · {t('{} chỗ · từ {}').replace('{}', a.count).replace('{}', money(a.fromPrice))}
             </button>
           ))}
         </div>
@@ -374,7 +378,7 @@ function Empty({ noResults }) {
 
       <button className="btn btn-primary" style={{ marginTop: 22 }}
               onClick={() => { resetFilters(); set({ q: '', searchArea: null, searchPolygon: null }); applySearch(); navigate('/'); }}>
-        Xoá tất cả bộ lọc
+        {t('Xoá tất cả bộ lọc')}
       </button>
     </div>
   );

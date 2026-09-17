@@ -88,6 +88,9 @@ public class ListingsController(
         // stay the guest could not book at that price.
         [FromQuery] int infants = 0,
         [FromQuery] int pets = 0,
+        [FromQuery] double? minRating = null,
+        [FromQuery] bool payAtProperty = false,
+        [FromQuery] double? maxCentreKm = null,
         CancellationToken ct = default)
     {
         var query = BuildQuery(
@@ -95,7 +98,8 @@ public class ListingsController(
             bedrooms, beds, bathrooms, superhost, guestFavorite, instantBook, freeCancellation,
             checkIn, checkOut, south, west, north, east, page, pageSize,
             Flexible(stay, flex, months, startMonths, checkIn, checkOut), hostLanguages, polygon,
-            infants, pets);
+            infants, pets)
+            with { MinRating = minRating, PayAtPropertyOnly = payAtProperty, MaxCentreKm = maxCentreKm };
 
         return Ok(await catalog.SearchAsync(query, HttpContext.SessionId(), ct));
     }
@@ -121,12 +125,16 @@ public class ListingsController(
         [FromQuery] bool instantBook = false,
         [FromQuery] bool freeCancellation = false,
         [FromQuery] string? hostLanguages = null,
+        [FromQuery] double? minRating = null,
+        [FromQuery] bool payAtProperty = false,
+        [FromQuery] double? maxCentreKm = null,
         CancellationToken ct = default)
     {
         var query = BuildQuery(
             q, category, minPrice, maxPrice, guests, amenities, "reco", roomType,
             bedrooms, beds, bathrooms, superhost, guestFavorite, instantBook, freeCancellation,
-            null, null, null, null, null, null, 1, 1, null, hostLanguages);
+            null, null, null, null, null, null, 1, 1, null, hostLanguages)
+            with { MinRating = minRating, PayAtPropertyOnly = payAtProperty, MaxCentreKm = maxCentreKm };
 
         return Ok(new { total = await catalog.CountAsync(query, ct) });
     }

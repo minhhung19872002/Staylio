@@ -1468,6 +1468,16 @@ khoá lạ bị **từ chối có tên**). Chủ nhà đọc được ở danh s
 được báo. Không phải lời hứa: không tính tiền, không chặn đặt. Kịch bản H10 (chạy
 được cả prod): **20/20** local.
 
+**Đối chiếu Booking.com — tìm kiếm.** Lọc theo **điểm đánh giá** (4,5+ / 4+ / 3,5+;
+tin chưa có đánh giá không lọt qua), **không cần trả trước** (tin nhận trả tại nơi
+ở, `docs/07 §2.5`), **khoảng cách tới trung tâm** (1 / 3 / 5 km) và xếp **gần trung
+tâm nhất**. Trung tâm từng thành phố là danh sách trong `Landmarks.Centres`;
+thành phố chưa có trong danh sách thì không có khoảng cách, bị loại khỏi bộ lọc km
+và xếp cuối khi sắp theo khoảng cách. Thẻ kết quả ghi "Cách trung tâm …" và "Không
+cần trả trước". Ba bộ lọc có mặt trong URL, trong bộ đếm của khung lọc và trong
+phần "bỏ bộ lọc nào thì có kết quả". Trang trống cũng đã đi qua từ điển. H11:
+**21/21** local.
+
 ---
 
 ## Kiểm chứng

@@ -21,6 +21,9 @@ export function searchToQuery() {
   if (state.guestFavoriteOnly) usp.set('guestFavorite', '1');
   if (state.instantBookOnly) usp.set('instantBook', '1');
   if (state.freeCancellationOnly) usp.set('freeCancellation', '1');
+  if (state.minRating) usp.set('minRating', String(state.minRating));
+  if (state.payAtPropertyOnly) usp.set('payAtProperty', '1');
+  if (state.maxCentreKm) usp.set('maxCentreKm', String(state.maxCentreKm));
   if (state.stay !== 'exact') usp.set('stay', state.stay);
   if (state.flexDays) usp.set('flex', String(state.flexDays));
   if (state.stay === 'months') usp.set('months', String(state.stayMonths));
@@ -46,6 +49,9 @@ export function queryToSearch(search) {
   state.guestFavoriteOnly = usp.get('guestFavorite') === '1';
   state.instantBookOnly = usp.get('instantBook') === '1';
   state.freeCancellationOnly = usp.get('freeCancellation') === '1';
+  state.minRating = Number(usp.get('minRating')) || 0;
+  state.payAtPropertyOnly = usp.get('payAtProperty') === '1';
+  state.maxCentreKm = Number(usp.get('maxCentreKm')) || 0;
 
   if (state.meta) {
     state.minPrice = Number(usp.get('minPrice')) || state.meta.minPrice;

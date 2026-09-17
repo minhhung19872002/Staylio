@@ -19,8 +19,11 @@ import { Modal, CountRow } from './Modal.jsx';
 
 const SORTS = [
   ['reco', 'Đề xuất cho bạn'], ['low', 'Giá thấp đến cao'], ['high', 'Giá cao đến thấp'],
-  ['rating', 'Đánh giá cao nhất'], ['reviews', 'Nhiều đánh giá nhất']
+  ['rating', 'Đánh giá cao nhất'], ['reviews', 'Nhiều đánh giá nhất'], ['distance', 'Gần trung tâm nhất']
 ];
+
+const RATINGS = [[0, 'Bất kỳ'], [4.5, 'Tuyệt hảo 4,5+'], [4, 'Rất tốt 4+'], [3.5, 'Tốt 3,5+']];
+const CENTRE_KM = [[0, 'Bất kỳ'], [1, 'Dưới 1 km'], [3, 'Dưới 3 km'], [5, 'Dưới 5 km']];
 
 export function FiltersModal() {
   const state = useStore();
@@ -187,6 +190,33 @@ export function FiltersModal() {
                   onClick={() => { set({ freeCancellationOnly: !state.freeCancellationOnly }); applySearch(); }}>
             <Icon name="heart" size={17} /> {t('Huỷ miễn phí')}
           </button>
+          <button className={`pill ${state.payAtPropertyOnly ? 'is-on' : ''}`}
+                  aria-pressed={state.payAtPropertyOnly}
+                  onClick={() => { set({ payAtPropertyOnly: !state.payAtPropertyOnly }); applySearch(); }}>
+            {t('Không cần trả trước')}
+          </button>
+        </div>
+      </section>
+
+      <section className="modal-section">
+        <h3>{t('Điểm đánh giá')}</h3>
+        <div className="pill-row" style={{ marginTop: 14 }}>
+          {RATINGS.map(([value, label]) => (
+            <button key={value} className={`pill ${state.minRating === value ? 'is-on' : ''}`}
+                    aria-pressed={state.minRating === value}
+                    onClick={() => { set({ minRating: value }); applySearch(); }}>{t(label)}</button>
+          ))}
+        </div>
+      </section>
+
+      <section className="modal-section">
+        <h3>{t('Khoảng cách tới trung tâm')}</h3>
+        <div className="pill-row" style={{ marginTop: 14 }}>
+          {CENTRE_KM.map(([value, label]) => (
+            <button key={value} className={`pill ${state.maxCentreKm === value ? 'is-on' : ''}`}
+                    aria-pressed={state.maxCentreKm === value}
+                    onClick={() => { set({ maxCentreKm: value }); applySearch(); }}>{t(label)}</button>
+          ))}
         </div>
       </section>
 

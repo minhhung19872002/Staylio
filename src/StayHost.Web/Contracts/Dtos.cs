@@ -1045,7 +1045,14 @@ public record ListingCardDto(
     /// </summary>
     bool FreeCancellation = false,
     /// <summary>The one-line promise from <c>Cancellation.Headline</c>.</summary>
-    string CancellationHeadline = "");
+    string CancellationHeadline = "")
+{
+    /// <summary>"Cách trung tâm 1,2 km" — null when the city's centre is not known.</summary>
+    public double? FromCentreKm { get; init; }
+    public string? FromCentreLabel { get; init; }
+    /// <summary>The guest may pay the host on arrival (docs/07 §2.5) — "không cần trả trước".</summary>
+    public bool PayAtProperty { get; init; }
+}
 
 public record HomeSectionDto(
     string Key,

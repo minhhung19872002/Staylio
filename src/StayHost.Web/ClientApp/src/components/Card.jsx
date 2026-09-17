@@ -145,11 +145,15 @@ function SearchBody({ card }) {
       <b>{money(total)}</b> <span>{t('cho')} {nights} {t('đêm')}</span>
     </div>
     <MatchedDates card={card} />
+    {card.fromCentreLabel && (
+      <div className="card-sub">{t('Cách trung tâm {}').replace('{}', card.fromCentreLabel.replace(/^Cách trung tâm /, ''))}</div>
+    )}
     {/* docs/03 §4 — this line used to read "Đã gồm phí · Huỷ miễn phí" on every
         result, non-refundable places included. The fee half is always true; the
         cancellation half is only true for two of the six tiers. */}
     <div className="card-perks">
       {card.freeCancellation ? t('Đã gồm phí · Huỷ miễn phí') : t('Đã gồm phí và thuế')}
+      {card.payAtProperty && <> · {t('Không cần trả trước')}</>}
     </div>
   </>;
 }

@@ -316,6 +316,27 @@ def s_stay_details_reach_the_host():
        % (bad, d, s2, (edited or {}).get("specialRequests"), s3, host_sees))
 
 
+def s_search_filters_like_booking():
+    """Review score, no prepayment, distance to centre, and the distance sort."""
+    name = "H11. Lọc theo điểm, không trả trước, khoảng cách tới trung tâm; xếp theo khoảng cách"
+    op = opener()
+    _, rated = call(op, "/api/listings?pageSize=60&minRating=4.5")
+    _, cash = call(op, "/api/listings?pageSize=60&payAtProperty=true")
+    _, near = call(op, "/api/listings?pageSize=60&maxCentreKm=3")
+    _, counted = call(op, "/api/listings/count?maxCentreKm=3")
+    _, by_km = call(op, "/api/listings?pageSize=60&sort=distance")
+    kms = [c.get("fromCentreKm") for c in by_km.get("items", [])]
+    known = [k for k in kms if k is not None]
+    ok(name,
+       all(c["rating"] >= 4.5 and c["reviewCount"] > 0 for c in rated["items"])
+       and all(c["payAtProperty"] for c in cash["items"])
+       and all(c.get("fromCentreKm") is not None and c["fromCentreKm"] <= 3.05 for c in near["items"])
+       and counted["total"] == near["total"]
+       and known == sorted(known) and kms[:len(known)] == known,
+       "điểm≥4.5: %d, trả tại chỗ: %d, ≤3km: %d (đếm %d), xếp: %s…"
+       % (rated["total"], cash["total"], near["total"], counted["total"], kms[:6]))
+
+
 def s_ical_is_public_only():
     op = sign_in("host1@staylio.vn")
     if op is None:
@@ -587,7 +608,7 @@ def main():
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
                  s_catalogue_only_takes_money, s_hosting_links, s_experience_goes_to_gateway,
                  s_shield_is_private, s_verify_link_not_in_response, s_ical_is_public_only,
-                 s_stay_details_reach_the_host]
+                 s_stay_details_reach_the_host, s_search_filters_like_booking]
     if LOCAL:
         scenarios += [l_cohost_needs_confirmed_email, l_phone_change_resets_confirmation,
                       l_host_cancel_blocks_dates, l_min_nights_keeps_price, l_gift_card_redeemed_once,

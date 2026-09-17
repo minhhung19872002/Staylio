@@ -313,7 +313,15 @@ public class CatalogService(StayHostDbContext db)
         /// <summary>docs/01 TM-24 — a hand-drawn search area, as lat/lng points.</summary>
         IReadOnlyList<GeoPolygon.Point>? Polygon = null,
         /// <summary>Listing ids inside the drawn area, resolved by <see cref="ResolveAreaAsync"/>.</summary>
-        IReadOnlySet<int>? InArea = null);
+        IReadOnlySet<int>? InArea = null,
+        /// <summary>Only places with reviews averaging at least this (5-point scale).</summary>
+        double? MinRating = null,
+        /// <summary>Only places where the guest can pay on arrival — "không cần trả trước".</summary>
+        bool PayAtPropertyOnly = false,
+        /// <summary>Only places within this many km of their city's centre.</summary>
+        double? MaxCentreKm = null,
+        /// <summary>Listing ids within <see cref="MaxCentreKm"/>, resolved by <see cref="ResolveAreaAsync"/>.</summary>
+        IReadOnlySet<int>? NearCentre = null);
 
     /// <summary>The visible map rectangle, when the guest is searching by moving it.</summary>
     public readonly record struct MapBounds(double South, double West, double North, double East);
@@ -418,6 +426,13 @@ public class CatalogService(StayHostDbContext db)
         if (q.InArea is { } area)
             query = query.Where(l => area.Contains(l.Id));
 
+        // A score needs reviews behind it: a new place's 0 is not "below 4".
+        if (q.MinRating is > 0 and var minRating)
+            query = query.Where(l => l.ReviewCount > 0 && l.Rating >= minRating);
+        if (q.PayAtPropertyOnly) query = query.Where(l => l.AcceptsPayAtProperty);
+        if (q.NearCentre is { } near)
+            query = query.Where(l => near.Contains(l.Id));
+
         // Dates are a filter like any other: a place with someone already in it
         // has no business on the results page (docs/01 TM-05, TM-06).
         if (q.Unavailable is { Count: > 0 } taken)
@@ -485,6 +500,22 @@ public class CatalogService(StayHostDbContext db)
     /// </summary>
     public async Task<SearchQuery> ResolveAreaAsync(SearchQuery q, CancellationToken ct)
     {
+        // Distance to the centre is worked out per listing in memory — the
+        // centres are a list in code, not a table SQL could join.
+        if (q.MaxCentreKm is > 0 and var maxKm && q.NearCentre is null)
+        {
+            var located = await db.Listings
+                .Where(l => l.IsPublished && l.ReviewStatus == ListingReviewStatus.Approved)
+                .Select(l => new { l.Id, l.City, l.Latitude, l.Longitude })
+                .ToListAsync(ct);
+            q = q with
+            {
+                NearCentre = located
+                    .Where(l => Landmarks.FromCentreKm(l.City, l.Latitude, l.Longitude) is { } km && km <= maxKm)
+                    .Select(l => l.Id).ToHashSet()
+            };
+        }
+
         if (q.Polygon is not { Count: >= 3 } polygon) return q;
 
         var (south, west, north, east) = GeoPolygon.Bounds(polygon);
@@ -503,7 +534,8 @@ public class CatalogService(StayHostDbContext db)
         return q with { InArea = inArea };
     }
 
-    public Task<int> CountAsync(SearchQuery q, CancellationToken ct) => BaseQuery(q).CountAsync(ct);
+    public async Task<int> CountAsync(SearchQuery q, CancellationToken ct) =>
+        await BaseQuery(await ResolveAreaAsync(q, ct)).CountAsync(ct);
 
     /// <summary>
     /// docs/01 YT-07 — the cards for a handful of listings the guest picked to
@@ -571,6 +603,27 @@ public class CatalogService(StayHostDbContext db)
                 .Include(l => l.Amenities).ThenInclude(la => la.Amenity)
                 .AsSplitQuery()
                 .ToListAsync(ct);
+        }
+        else if (q.Sort == "distance")
+        {
+            // Closest to its own city's centre first; places whose centre is
+            // unknown go last rather than being dropped.
+            var located = await BaseQuery(q)
+                .Select(l => new { l.Id, l.City, l.Latitude, l.Longitude })
+                .ToListAsync(ct);
+            total = located.Count;
+            var pageIds = located
+                .OrderBy(l => Landmarks.FromCentreKm(l.City, l.Latitude, l.Longitude) ?? double.MaxValue)
+                .ThenBy(l => l.Id)
+                .Skip((page - 1) * pageSize).Take(pageSize)
+                .Select(l => l.Id).ToList();
+            var loaded = await db.Listings
+                .Where(l => pageIds.Contains(l.Id))
+                .Include(l => l.Images)
+                .Include(l => l.Amenities).ThenInclude(la => la.Amenity)
+                .AsSplitQuery()
+                .ToDictionaryAsync(l => l.Id, ct);
+            items = pageIds.Where(loaded.ContainsKey).Select(id => loaded[id]).ToList();
         }
         else
         {
@@ -764,6 +817,9 @@ public class CatalogService(StayHostDbContext db)
         if (q.GuestFavoriteOnly) candidates.Add(("guestFavorite", "Chỉ Khách yêu thích"));
         if (q.InstantBookOnly) candidates.Add(("instantBook", "Chỉ Đặt ngay"));
         if (q.FreeCancellationOnly) candidates.Add(("freeCancellation", "Chỉ Huỷ miễn phí"));
+        if (q.MinRating is > 0) candidates.Add(("minRating", "Điểm đánh giá"));
+        if (q.PayAtPropertyOnly) candidates.Add(("payAtProperty", "Không cần trả trước"));
+        if (q.MaxCentreKm is > 0) candidates.Add(("maxCentreKm", "Khoảng cách tới trung tâm"));
         if (q.Bedrooms is > 0 || q.Beds is > 0 || q.Bathrooms is > 0) candidates.Add(("rooms", "Số phòng và giường"));
         if (!string.IsNullOrWhiteSpace(q.RoomType) && q.RoomType != "any") candidates.Add(("roomType", "Loại nơi ở"));
         if (!string.IsNullOrWhiteSpace(q.Category) && q.Category != "all") candidates.Add(("category", "Loại chỗ ở"));
@@ -829,6 +885,9 @@ public class CatalogService(StayHostDbContext db)
         "freeCancellation" => q with { FreeCancellationOnly = false },
         "category" => q with { Category = "all" },
         "hostLanguages" => q with { HostLanguages = null },
+        "minRating" => q with { MinRating = null },
+        "payAtProperty" => q with { PayAtPropertyOnly = false },
+        "maxCentreKm" => q with { MaxCentreKm = null, NearCentre = null },
         _ => q
     };
 
@@ -957,7 +1016,13 @@ public class CatalogService(StayHostDbContext db)
         pricer?.Window(l).CheckOut,
         // docs/03 §4 — both come off the listing's own tier, never a constant.
         Cancellation.HasFreeCancellation(l.CancellationTier),
-        Cancellation.Headline(l.CancellationTier));
+        Cancellation.Headline(l.CancellationTier))
+    {
+        FromCentreKm = Landmarks.FromCentreKm(l.City, l.Latitude, l.Longitude) is { } km ? Math.Round(km, 1) : null,
+        FromCentreLabel = Landmarks.FromCentreKm(l.City, l.Latitude, l.Longitude) is { } d
+            ? $"Cách trung tâm {Landmarks.DistanceLabel(d)}" : null,
+        PayAtProperty = l.AcceptsPayAtProperty
+    };
 
     public async Task<ListingDetailDto?> GetDetailAsync(
         string idOrSlug, string sessionId, DateOnly? checkIn, DateOnly? checkOut, int guests,
