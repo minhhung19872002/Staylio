@@ -694,6 +694,46 @@ def l_listing_questions():
           stranger, ans, shown.get("answer")))
 
 
+def l_hotel_rate_plans():
+    name = "L15. Gói giá khách sạn: không hoàn tiền rẻ hơn + bữa sáng, báo giá = đơn, hạng huỷ đổi theo gói"
+    row = sql('select r."Id" || \'|\' || r."ListingId" || \'|\' || r."NonRefundableDiscountPercent" || \'|\' || r."BreakfastPricePerGuest" '
+              'from room_types r join listings l on l."Id"=r."ListingId" '
+              'where r."NonRefundableDiscountPercent" > 0 and r."BreakfastPricePerGuest" > 0 and l."IsPublished" '
+              'order by r."Id" limit 1')
+    if not row:
+        return skip(name, "không có loại phòng nào bán gói giá")
+    rid, lid, pct, bf = row.split("|")
+    rid, lid, pct, bf = int(rid), int(lid), int(pct), float(bf)
+    op = opener()
+    guest, _ = register("rate%s@staylio.vn" % RUN, "Khach Goi Gia")
+    for week in range(12):
+        ci = today() + datetime.timedelta(days=90 + int(RUN) % 30 + 7 * week)
+        co = ci + datetime.timedelta(days=2)
+        base_q = "/api/quote?listingId=%d&checkIn=%s&checkOut=%s&adults=2&roomTypeId=%d" % (lid, ci, co, rid)
+        _, plain = call(op, base_q)
+        _, planned = call(op, base_q + "&nonRefundable=true&breakfast=true")
+        st, b = call(guest, "/api/bookings", {
+            "listingId": lid, "checkIn": ci.isoformat(), "checkOut": co.isoformat(), "guests": 2, "adults": 2,
+            "roomTypeId": rid, "agreedToRules": True, "nonRefundableRate": True, "breakfast": True})
+        if st == 409:
+            continue
+        break
+    bad, _ = call(op, base_q.replace("roomTypeId=%d" % rid, "roomTypeId=") + "&breakfast=true")
+    if st not in (200, 201):
+        return ok(name, False, "đặt %s %s" % (st, b))
+    tier = sql('select "CancellationTier" || \'|\' || "BreakfastFee" || \'|\' || "RatePlanDiscountPercent" from bookings where "Id"=%d' % b["id"])
+    call(guest, "/api/bookings/%d/release" % b["id"], m="POST")
+    t, fee, saved_pct = tier.split("|")
+    expected_bf = round(bf * 2 * 2)
+    ok(name,
+       planned["breakfastFee"] == expected_bf and planned["nonRefundableRate"] is True
+       and planned["roomDiscount"] >= round(plain["roomBeforeDiscount"] * pct / 100) - 1
+       and b["total"] == planned["total"] and t == "4" and float(fee) == expected_bf
+       and int(saved_pct) == pct and bad == 400,
+       "thường=%s, gói=%s (sáng %s, giảm %s), đơn=%s, hạng=%s, không phòng=%s"
+       % (plain["total"], planned["total"], planned["breakfastFee"], planned["roomDiscount"], b["total"], t, bad))
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
@@ -708,7 +748,7 @@ def main():
                       l_host_cancel_is_fined, l_service_waits_for_the_provider,
                       l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings,
                       l_trip_shared_without_the_keys, l_reviews_say_who_and_count_helpful,
-                      l_listing_questions]
+                      l_listing_questions, l_hotel_rate_plans]
     for s in scenarios:
         try:
             s()

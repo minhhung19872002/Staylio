@@ -33,6 +33,51 @@ public class HostController(
         return (user, profile);
     }
 
+    /* ------------------------------------------- hotel rate plans (Booking.com) */
+
+    public record HostRoomTypeDto(
+        int Id, int ListingId, string ListingTitle, string Name, decimal PricePerNight,
+        int NonRefundableDiscountPercent, decimal BreakfastPricePerGuest);
+
+    /// <summary>Every hotel room the caller may price: their own, and ones lent with the Pricing scope.</summary>
+    [HttpGet("room-types")]
+    public async Task<ActionResult<IReadOnlyList<HostRoomTypeDto>>> RoomTypes(CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+        var ids = await access.ListingIdsAsync(user, CoHostScope.Pricing, ct);
+        return Ok(await db.RoomTypes
+            .Where(r => ids.Contains(r.ListingId))
+            .OrderBy(r => r.ListingId).ThenBy(r => r.SortOrder).ThenBy(r => r.Id)
+            .Select(r => new HostRoomTypeDto(r.Id, r.ListingId, r.Listing!.Title, r.Name, r.PricePerNight,
+                r.NonRefundableDiscountPercent, r.BreakfastPricePerGuest))
+            .ToListAsync(ct));
+    }
+
+    /// <summary>
+    /// The non-refundable discount and the breakfast price a room is sold with.
+    /// Bookings already made keep the plan they were sold (Booking.Plan).
+    /// </summary>
+    [HttpPut("room-types/{id:int}/rate-plans")]
+    public async Task<IActionResult> SaveRatePlans(int id, [FromBody] RoomRatePlansRequest req, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Bạn cần đăng nhập." });
+        var room = await db.RoomTypes.Include(r => r.Listing).FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (room?.Listing is null) return NotFound();
+        if (!await MayAsync(user, room.Listing, CoHostScope.Pricing, ct)) return this.Denied();
+
+        if (req.NonRefundableDiscountPercent is < 0 or > RatePlan.MaxNonRefundablePercent)
+            return BadRequest(new { message = $"Mức giảm cho giá không hoàn tiền phải từ 0 đến {RatePlan.MaxNonRefundablePercent}%." });
+        if (req.BreakfastPricePerGuest < 0 || req.BreakfastPricePerGuest > room.PricePerNight)
+            return BadRequest(new { message = "Giá bữa sáng không hợp lệ." });
+
+        room.NonRefundableDiscountPercent = req.NonRefundableDiscountPercent;
+        room.BreakfastPricePerGuest = Math.Round(req.BreakfastPricePerGuest, 0);
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
     /* ---------------------------------------------------------- dashboard */
 
     [HttpGet("dashboard")]

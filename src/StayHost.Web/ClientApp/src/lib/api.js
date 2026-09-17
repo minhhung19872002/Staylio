@@ -345,6 +345,10 @@ export const api = {
   /* docs/07 §2.5 — find a booking again with no account. */
   lookupBooking: (reference, email) =>
     request('/api/bookings/lookup', { method: 'POST', body: JSON.stringify({ reference, email }) }),
+  /* Hotel rate plans a host sells each room with. */
+  hostRoomTypes: () => request('/api/host/room-types'),
+  saveRatePlans: (roomId, body) =>
+    request(`/api/host/room-types/${roomId}/rate-plans`, { method: 'PUT', body: JSON.stringify(body) }),
   /* Public questions on a listing, answered by its host. */
   listingQuestions: listingId => request(`/api/listings/${listingId}/questions`),
   askQuestion: (listingId, question) =>

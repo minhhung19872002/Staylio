@@ -72,7 +72,10 @@ public static class HotelSeeder
                     PricePerNight = r.Price,
                     ImageUrl = r.Image,
                     Features = string.Join('\n', r.Features),
-                    SortOrder = j
+                    SortOrder = j,
+                    // Booking.com-style rate plans, so the demo hotels sell them.
+                    NonRefundableDiscountPercent = 10,
+                    BreakfastPricePerGuest = BreakfastFor(r.Price)
                 }).ToList(),
                 Amenities = amenities.Select(a => new ListingAmenity { AmenityId = a.Id }).ToList()
             };
@@ -116,6 +119,10 @@ public static class HotelSeeder
                     "https://images.pexels.com/photos/2506988/pexels-photo-2506988.jpeg")
             ])
     ];
+
+    /// <summary>About an eighth of the room, in round tens of thousands, never below 80.000 ₫.</summary>
+    internal static decimal BreakfastFor(decimal roomPrice) =>
+        Math.Max(80_000m, Math.Round(roomPrice / 8m / 10_000m) * 10_000m);
 
     private static string Slugify(string title, int n)
     {

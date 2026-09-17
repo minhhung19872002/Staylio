@@ -682,6 +682,16 @@ public class Booking
     /// </summary>
     public decimal? NightlyOverride { get; set; }
 
+    /// <summary>
+    /// The hotel rate plan as it was sold — frozen like <see cref="NightlyOverride"/>,
+    /// so a host who changes the offer later cannot move this booking's price.
+    /// </summary>
+    public int RatePlanDiscountPercent { get; set; }
+    public decimal BreakfastPerGuest { get; set; }
+    public decimal BreakfastFee { get; set; }
+
+    public RatePlan Plan => new(RatePlanDiscountPercent, BreakfastPerGuest);
+
     /// <summary>docs/01 MR-09 — which kind of room, for a hotel booking.</summary>
     public int? RoomTypeId { get; set; }
     public RoomTypeOption? RoomType { get; set; }

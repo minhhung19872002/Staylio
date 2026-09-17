@@ -48,6 +48,9 @@ public static class Pricing
         /// </summary>
         public decimal? NightlyRateOverride { get; init; }
 
+        /// <summary>A hotel room's non-refundable rate and breakfast, already resolved.</summary>
+        public RatePlan Plan { get; init; } = RatePlan.None;
+
         public PricingSettings Settings { get; init; } = PricingSettings.Current;
     }
 
@@ -68,6 +71,7 @@ public static class Pricing
         public required decimal ExtraGuestFee { get; init; }
         public required decimal PetFee { get; init; }
         public required decimal CleaningFee { get; init; }
+        public decimal BreakfastFee { get; init; }
 
         /// <summary>Step 6 — what both service fees are calculated from.</summary>
         public required decimal Subtotal { get; init; }
@@ -151,6 +155,15 @@ public static class Pricing
                 : new DiscountPart("last-minute", $"Giảm giá phút chót ({lastMinute}%)", lastMinute));
         }
 
+        // The non-refundable rate is a discount on the room like the others,
+        // and so counts toward the same cap.
+        if (req.Plan.NonRefundableDiscountPercent > 0)
+        {
+            parts.Add(new("non-refundable",
+                $"Giá không hoàn tiền ({req.Plan.NonRefundableDiscountPercent}%)",
+                req.Plan.NonRefundableDiscountPercent));
+        }
+
         // Step 4 — a brand-new listing's first few stays.
         if (req.ListingBookingCount < req.Settings.NewListingBookingCount)
         {
@@ -193,9 +206,12 @@ public static class Pricing
             ? Round(l.PetFeePerNight ? l.PetFee * nights : l.PetFee)
             : 0m;
         var cleaningFee = Round(l.CleaningFee);
+        // Breakfast is for everyone counted, like the extra-guest fee; infants eat free.
+        var breakfastGuests = Math.Max(1, req.Party.Counted);
+        var breakfastFee = Round(req.Plan.BreakfastPerGuestPerNight * breakfastGuests * nights);
 
         // Step 6.
-        var subtotal = roomAfterDiscount + extraGuestFee + petFee + cleaningFee;
+        var subtotal = roomAfterDiscount + extraGuestFee + petFee + cleaningFee + breakfastFee;
 
         // Step 7 — guest service fee, before tax.
         var guestServiceFee = Round(subtotal * s.GuestServiceFeeRate);
@@ -234,6 +250,8 @@ public static class Pricing
 
         if (extraGuestFee > 0) lines.Add(new("extra-guests", $"Phụ thu {extraGuests} khách thêm × {nights} đêm", extraGuestFee));
         if (petFee > 0) lines.Add(new("pet", l.PetFeePerNight ? $"Phí thú cưng × {nights} đêm" : "Phí thú cưng", petFee));
+        if (breakfastFee > 0)
+            lines.Add(new("breakfast", $"Bữa sáng × {breakfastGuests} khách × {nights} đêm", breakfastFee));
         if (cleaningFee > 0) lines.Add(new("cleaning", "Phí dọn dẹp", cleaningFee));
 
         lines.Add(new("guest-service-fee", "Phí dịch vụ Staylio", guestServiceFee));
@@ -252,6 +270,7 @@ public static class Pricing
             ExtraGuestFee = extraGuestFee,
             PetFee = petFee,
             CleaningFee = cleaningFee,
+            BreakfastFee = breakfastFee,
             Subtotal = subtotal,
             GuestServiceFee = guestServiceFee,
             Tax = tax,

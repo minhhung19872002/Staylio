@@ -35,7 +35,7 @@ public class PaymentCompletion(
         var fresh = await catalog.BuildQuoteRequestAsync(
             booking.ListingId, booking.CheckIn, booking.CheckOut, party, ct, booking.Id, booking.RoomTypeId,
             // docs/01 ĐP-17 — the offer's rate must survive the off-site rescue too.
-            nightlyOverride: booking.NightlyOverride);
+            nightlyOverride: booking.NightlyOverride, plan: booking.Plan);
 
         if (fresh is null) return null;
 

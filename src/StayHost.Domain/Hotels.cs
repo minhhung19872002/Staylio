@@ -35,6 +35,17 @@ public class RoomTypeOption
 
     public int SortOrder { get; set; }
 
+    /* ------------------------------------------------ rate plans (Booking.com) */
+
+    /// <summary>
+    /// A cheaper rate the guest may take in exchange for no refund at all.
+    /// 0 means this room is not sold that way.
+    /// </summary>
+    public int NonRefundableDiscountPercent { get; set; }
+
+    /// <summary>Breakfast, per counted guest per night. 0 means not offered.</summary>
+    public decimal BreakfastPricePerGuest { get; set; }
+
     public IReadOnlyList<string> FeatureList =>
         Features.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }
@@ -153,4 +164,38 @@ public static class HotelRules
         PriceMatchStatus.Rejected => "Đã từ chối",
         _ => "Đang xem xét"
     };
+}
+
+/// <summary>
+/// What the guest picked on top of a hotel room: the non-refundable rate, and
+/// breakfast. Resolved against the room's own offer before pricing, so
+/// <see cref="Pricing"/> only ever sees numbers the host set.
+/// </summary>
+public sealed record RatePlan(int NonRefundableDiscountPercent, decimal BreakfastPerGuestPerNight)
+{
+    public const int MaxNonRefundablePercent = 50;
+
+    public static readonly RatePlan None = new(0, 0);
+
+    /// <summary>
+    /// The plan for a room, or the reason the choice cannot be sold. Asking for
+    /// something the room does not offer is refused by name, not quietly
+    /// dropped — a guest who ticked breakfast must not arrive to find none.
+    /// </summary>
+    public static (RatePlan? Plan, string? Error) Resolve(RoomTypeOption? room, bool nonRefundable, bool breakfast)
+    {
+        if (!nonRefundable && !breakfast) return (None, null);
+        if (room is null) return (null, "Gói giá chỉ áp dụng khi chọn loại phòng khách sạn.");
+        if (nonRefundable && room.NonRefundableDiscountPercent <= 0)
+            return (null, "Loại phòng này không bán giá không hoàn tiền.");
+        if (breakfast && room.BreakfastPricePerGuest <= 0)
+            return (null, "Loại phòng này không có bữa sáng.");
+        return (new RatePlan(
+            nonRefundable ? Math.Min(room.NonRefundableDiscountPercent, MaxNonRefundablePercent) : 0,
+            breakfast ? room.BreakfastPricePerGuest : 0), null);
+    }
+
+    /// <summary>A non-refundable plan replaces whatever tier the listing has.</summary>
+    public CancellationTier TierFor(CancellationTier listingTier) =>
+        NonRefundableDiscountPercent > 0 ? CancellationTier.NonRefundable : listingTier;
 }

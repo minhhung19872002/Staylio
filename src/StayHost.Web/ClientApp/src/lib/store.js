@@ -172,6 +172,9 @@ export const state = {
   agreedToRules: false,
   // docs/01 MR-09 — the room type chosen on a hotel listing.
   roomTypeId: null,
+  /** Hotel rate plan on top of the room: the non-refundable rate, breakfast. */
+  nonRefundableRate: false,
+  breakfast: false,
   // docs/01 ĐP-07 — let other people pay their share instead of paying it all.
   splitBill: false,
   splitEmails: '',
@@ -789,6 +792,8 @@ export async function refreshQuote() {
       infants: state.guests.infants,
       pets: state.guests.pets,
       roomTypeId: state.roomTypeId,
+      nonRefundable: (state.roomTypeId && state.nonRefundableRate) || undefined,
+      breakfast: (state.roomTypeId && state.breakfast) || undefined,
       // docs/01 ĐP-09 — the code is priced server-side so the guest sees the
       // discount, or the reason it did not apply, before committing.
       couponCode: state.couponCode || undefined
@@ -808,7 +813,15 @@ export function applyCoupon(code) {
 
 /** docs/01 MR-09 — picking a room re-prices the panel against that room. */
 export function setRoom(roomTypeId) {
+  // A plan belongs to a room; picking another room starts from its plain rate.
+  if (state.roomTypeId !== roomTypeId) Object.assign(state, { nonRefundableRate: false, breakfast: false });
   state.roomTypeId = roomTypeId;
+  notify();
+  refreshQuote();
+}
+
+export function setRatePlan(patch) {
+  Object.assign(state, patch);
   notify();
   refreshQuote();
 }
@@ -833,6 +846,8 @@ export async function holdDates(extra = {}) {
       pets: state.guests.pets,
       // docs/01 MR-09 — a hotel booking carries the room the guest picked.
       roomTypeId: state.roomTypeId,
+      nonRefundableRate: !!(state.roomTypeId && state.nonRefundableRate),
+      breakfast: !!(state.roomTypeId && state.breakfast),
       useCredit: state.useCredit,
       // docs/01 ĐP-09 — the code committed at the hold, re-checked at payment.
       couponCode: state.couponCode || undefined,

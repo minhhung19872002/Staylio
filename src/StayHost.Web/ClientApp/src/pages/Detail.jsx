@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../lib/useStore.js';
 import {
   loadDetail, toggleFavorite, totalGuests, guestLabel, bumpTotalGuests,
-  clearDates, openOverlay, openReport, set, setRoom, shareListing
+  clearDates, openOverlay, openReport, set, setRoom, setRatePlan, shareListing
 } from '../lib/store.js';
 import { money, longDate, nightsBetween, monthLabel, dateTime } from '../lib/format.js';
 import { Avatar } from '../components/Avatar.jsx';
@@ -743,6 +743,34 @@ function RoomPicker({ rooms }) {
           <div className="room-price">{money(r.pricePerNight)}<span>/ {t('đêm')}</span></div>
         </button>
       ))}
+      <RatePlanOptions room={rooms.find(r => r.id === state.roomTypeId)} />
+    </div>
+  );
+}
+
+/** Booking.com's rate plans: a cheaper non-refundable rate, and breakfast. */
+function RatePlanOptions({ room }) {
+  const state = useStore();
+  if (!room || (!room.nonRefundableDiscountPercent && !room.breakfastPricePerGuest)) return null;
+  return (
+    <div style={{ display: 'grid', gap: 8, margin: '10px 0 4px' }}>
+      {room.nonRefundableDiscountPercent > 0 && (
+        <label className="check-row">
+          <input type="checkbox" checked={state.nonRefundableRate}
+                 onChange={e => setRatePlan({ nonRefundableRate: e.target.checked })} />
+          <span>{t('Giá không hoàn tiền — rẻ hơn {}%').replace('{}', room.nonRefundableDiscountPercent)}</span>
+        </label>
+      )}
+      {room.breakfastPricePerGuest > 0 && (
+        <label className="check-row">
+          <input type="checkbox" checked={state.breakfast}
+                 onChange={e => setRatePlan({ breakfast: e.target.checked })} />
+          <span>{t('Thêm bữa sáng — {} mỗi khách mỗi đêm').replace('{}', money(room.breakfastPricePerGuest))}</span>
+        </label>
+      )}
+      {state.nonRefundableRate && (
+        <p className="meta" style={{ margin: 0 }}>{t('Huỷ hoặc đổi ngày sẽ không được hoàn tiền phòng.')}</p>
+      )}
     </div>
   );
 }

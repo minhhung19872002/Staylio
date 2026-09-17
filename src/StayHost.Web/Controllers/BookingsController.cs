@@ -153,9 +153,13 @@ public class BookingsController(
 
         // Quoting and booking go through the same builder so the guest is charged
         // exactly what the room page showed them (docs/00 §6.8).
+        var (plan, planError) = await catalog.ResolvePlanAsync(
+            listing.Id, req.RoomTypeId, req.NonRefundableRate, req.Breakfast, ct);
+        if (planError is not null) return BadRequest(new { message = planError });
+
         var quoteRequest = await catalog.BuildQuoteRequestAsync(
             listing.Id, req.CheckIn, req.CheckOut, party, ct,
-            roomTypeId: req.RoomTypeId, nightlyOverride: offer?.NightlyRate);
+            roomTypeId: req.RoomTypeId, nightlyOverride: offer?.NightlyRate, plan: plan);
 
         // docs/01 ĐP-09 — a promo code first, evaluated against the stay's total
         // before any reduction. It is refused loudly rather than silently ignored:
@@ -282,6 +286,9 @@ public class BookingsController(
             CouponId = couponId,
             CouponDiscount = price.Coupon,
             NightlyOverride = offer?.NightlyRate,
+            RatePlanDiscountPercent = plan!.NonRefundableDiscountPercent,
+            BreakfastPerGuest = plan.BreakfastPerGuestPerNight,
+            BreakfastFee = price.BreakfastFee,
             // docs/07 §6 — kept so "the price I was shown" can be settled from
             // the record. The rate is the platform's own at this instant, looked
             // up below — never one the browser claimed. Evidence, not an input:
@@ -290,7 +297,8 @@ public class BookingsController(
             // balances to zero.
             DisplayCurrency = displayCurrency,
             DisplayRate = displayRate,
-            CancellationTier = listing.CancellationTier,
+            // A non-refundable rate is its own tier, whatever the listing's is.
+            CancellationTier = plan.TierFor(listing.CancellationTier),
             GuestName = req.GuestName ?? user?.FullName,
             GuestEmail = req.GuestEmail ?? user?.Email,
             GuestPhone = Identity.NormalisePhone(req.GuestPhone) ?? user?.Phone,
@@ -547,7 +555,7 @@ public class BookingsController(
             booking.ListingId, booking.CheckIn, booking.CheckOut, party, ct, booking.Id, booking.RoomTypeId,
             // docs/01 ĐP-17 — a private offer set the rate, so the re-price uses it
             // rather than the listing's normal price it would otherwise fail against.
-            nightlyOverride: booking.NightlyOverride);
+            nightlyOverride: booking.NightlyOverride, plan: booking.Plan);
 
         // docs/01 ĐP-09 — the promo code committed at the hold is part of the
         // shown price too, so the re-price carries it exactly as quoted. The
@@ -1094,7 +1102,7 @@ public class BookingsController(
     {
         var fresh = await catalog.BuildQuoteRequestAsync(
             booking.ListingId, checkIn, checkOut, party, ct, booking.Id, booking.RoomTypeId,
-            nightlyOverride: booking.NightlyOverride);
+            nightlyOverride: booking.NightlyOverride, plan: booking.Plan);
         if (fresh is null) return null;
 
         if (booking.CouponDiscount > 0)

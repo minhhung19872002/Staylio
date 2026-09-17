@@ -1344,7 +1344,13 @@ public record HotelRoomDto(
     double SizeSqm,
     decimal PricePerNight,
     string? ImageUrl,
-    IReadOnlyList<string> Features);
+    IReadOnlyList<string> Features,
+    /// <summary>Rate plans this room sells; 0 means not offered.</summary>
+    int NonRefundableDiscountPercent = 0,
+    decimal BreakfastPricePerGuest = 0);
+
+/// <summary>What a host sells a hotel room with, beyond the base rate.</summary>
+public record RoomRatePlansRequest(int NonRefundableDiscountPercent, decimal BreakfastPricePerGuest);
 
 public record QuoteRequest(int ListingId, DateOnly CheckIn, DateOnly CheckOut, int Guests);
 
@@ -1502,7 +1508,11 @@ public record QuoteDto(
     /// <summary>docs/01 ĐP-09 — set when a code was applied; CouponError when one was refused.</summary>
     bool CouponApplied = false,
     decimal CouponDiscount = 0,
-    string? CouponError = null);
+    string? CouponError = null)
+{
+    public decimal BreakfastFee { get; init; }
+    public bool NonRefundableRate { get; init; }
+}
 
 /// <summary>Card details captured when the guest actually pays, not when the hold started.</summary>
 public record PayBookingRequest(
@@ -1604,7 +1614,10 @@ public record CreateBookingRequest(
     int? EstimatedArrivalHour = null,
     string? StayingGuestName = null,
     bool IsBusinessTrip = false,
-    IReadOnlyList<string>? SpecialRequests = null);
+    IReadOnlyList<string>? SpecialRequests = null,
+    /// <summary>Hotel rate plan: the non-refundable rate, and breakfast.</summary>
+    bool NonRefundableRate = false,
+    bool Breakfast = false);
 
 public record ShareTripRequest(string? Email, string? Name);
 

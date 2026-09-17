@@ -70,7 +70,7 @@ public class HostOperationsController(
         var party = new PartySize(change.NewAdults, change.NewChildren, change.NewInfants, change.NewPets);
         var fresh = await catalog.BuildQuoteRequestAsync(
             booking.ListingId, change.NewCheckIn, change.NewCheckOut, party, ct, booking.Id,
-            booking.RoomTypeId, nightlyOverride: booking.NightlyOverride);
+            booking.RoomTypeId, nightlyOverride: booking.NightlyOverride, plan: booking.Plan);
         if (fresh is null) return NotFound();
         if (booking.CouponDiscount > 0) fresh = fresh with { CouponAmount = booking.CouponDiscount, CouponLabel = "Mã giảm giá" };
         if (booking.CreditUsed > 0) fresh = fresh with { PromotionAmount = booking.CreditUsed, PromotionLabel = "Số dư Staylio" };
@@ -102,6 +102,7 @@ public class HostOperationsController(
         booking.DiscountPercent = price.DiscountPercent;
         booking.ExtraGuestFee = price.ExtraGuestFee;
         booking.PetFee = price.PetFee;
+        booking.BreakfastFee = price.BreakfastFee;
         booking.CleaningFee = price.CleaningFee;
         booking.Subtotal = price.Subtotal;
         booking.ServiceFee = price.GuestServiceFee;

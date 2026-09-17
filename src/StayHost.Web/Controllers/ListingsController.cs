@@ -279,14 +279,19 @@ public class ListingsController(
         [FromQuery] int pets = 0,
         [FromQuery] int? roomTypeId = null,
         [FromQuery] string? couponCode = null,
+        [FromQuery] bool nonRefundable = false,
+        [FromQuery] bool breakfast = false,
         CancellationToken ct = default)
     {
+        var (plan, planError) = await catalog.ResolvePlanAsync(listingId, roomTypeId, nonRefundable, breakfast, ct);
+        if (planError is not null) return BadRequest(new { message = planError });
+
         // `guests` is the legacy single number; adults/children win when supplied.
         var party = adults is null
             ? PartySize.Of(guests) with { Infants = infants, Pets = pets }
             : new PartySize(Math.Max(1, adults.Value), children, infants, pets);
 
-        var quote = await catalog.QuoteAsync(listingId, checkIn, checkOut, party, ct, roomTypeId);
+        var quote = await catalog.QuoteAsync(listingId, checkIn, checkOut, party, ct, roomTypeId, plan: plan);
         if (quote is null) return NotFound();
 
         // docs/01 ĐP-09 — the quote is where a code is checked, so the guest sees
@@ -303,7 +308,7 @@ public class ListingsController(
 
             quote = check.Ok
                 ? await catalog.QuoteAsync(listingId, checkIn, checkOut, party, ct, roomTypeId,
-                    check.Discount, check.Label)
+                    check.Discount, check.Label, plan: plan)
                 : quote with { CouponError = check.Error };
         }
 

@@ -1507,6 +1507,19 @@ vì một câu trả lời công khai là chỗ lý tưởng để kéo đơn ra
 chờ mỗi người mỗi tin; chủ nhà tự hỏi tin của mình bị từ chối. Bảng
 `listing_questions`. L14: **24/24** local.
 
+**Đối chiếu Booking.com — gói giá khách sạn.** Mỗi loại phòng có thể bán thêm
+**giá không hoàn tiền** (giảm %, tối đa 50%) và **bữa sáng** (giá mỗi khách mỗi
+đêm). Trong `Pricing.cs` đây vẫn là **một nơi duy nhất**: giá không hoàn tiền là
+một phần giảm giá ở bước 2–4 (chịu chung trần 60%), bữa sáng là phụ thu ở bước 5
+(tính theo khách được đếm, em bé miễn), nên phí dịch vụ, thuế và phần chủ nhà nhận
+đi theo đúng như mọi khoản khác. Đơn **đóng băng gói lúc đặt**
+(`Booking.RatePlanDiscountPercent`/`BreakfastPerGuest`, cùng kiểu `NightlyOverride`)
+nên chủ nhà đổi gói sau đó không làm đơn trượt kiểm tra giá lúc thanh toán; chọn
+không hoàn tiền thì **hạng huỷ của đơn là Không hoàn tiền** bất kể hạng của tin.
+Chọn gói mà phòng không bán → bị từ chối có tên. Chủ nhà (hoặc co-host quyền Giá)
+chỉnh ở tab Chỗ nghỉ. Khách sạn mẫu được bật sẵn 10% + bữa sáng (seed và
+migration `HotelRatePlans`). L15: **25/25** local; cả bộ chạy lại trên DB trắng.
+
 ---
 
 ## Kiểm chứng

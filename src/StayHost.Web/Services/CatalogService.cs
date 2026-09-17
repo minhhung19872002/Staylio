@@ -1345,7 +1345,8 @@ public class CatalogService(StayHostDbContext db)
 
             return new HotelRoomDto(
                 r.Id, r.Name, r.Summary, r.Inventory, Math.Max(0, r.Inventory - peak),
-                r.MaxGuests, r.Beds, r.SizeSqm, r.PricePerNight, r.ImageUrl, r.FeatureList);
+                r.MaxGuests, r.Beds, r.SizeSqm, r.PricePerNight, r.ImageUrl, r.FeatureList,
+                r.NonRefundableDiscountPercent, r.BreakfastPricePerGuest);
         }).ToList();
     }
 
@@ -1395,7 +1396,8 @@ public class CatalogService(StayHostDbContext db)
     /// </param>
     public async Task<Pricing.Request?> BuildQuoteRequestAsync(
         int listingId, DateOnly checkIn, DateOnly checkOut, PartySize party, CancellationToken ct,
-        int? excludeBookingId = null, int? roomTypeId = null, decimal? nightlyOverride = null)
+        int? excludeBookingId = null, int? roomTypeId = null, decimal? nightlyOverride = null,
+        RatePlan? plan = null)
     {
         var l = await db.Listings.FirstOrDefaultAsync(x => x.Id == listingId, ct);
         if (l is null) return null;
@@ -1429,16 +1431,29 @@ public class CatalogService(StayHostDbContext db)
             PriceRules = rules,
             TaxRules = await ActiveTaxRulesAsync(ct),
             ListingBookingCount = soldStays,
-            NightlyRateOverride = roomRate
+            NightlyRateOverride = roomRate,
+            Plan = plan ?? RatePlan.None
         };
+    }
+
+    /// <summary>The plan a guest asked for, checked against what the room sells.</summary>
+    public async Task<(RatePlan? Plan, string? Error)> ResolvePlanAsync(
+        int listingId, int? roomTypeId, bool nonRefundable, bool breakfast, CancellationToken ct)
+    {
+        if (!nonRefundable && !breakfast) return (RatePlan.None, null);
+        var room = roomTypeId is { } id
+            ? await db.RoomTypes.FirstOrDefaultAsync(r => r.Id == id && r.ListingId == listingId, ct)
+            : null;
+        return RatePlan.Resolve(room, nonRefundable, breakfast);
     }
 
     public async Task<QuoteDto?> QuoteAsync(
         int listingId, DateOnly checkIn, DateOnly checkOut, PartySize party, CancellationToken ct,
-        int? roomTypeId = null, decimal couponAmount = 0, string? couponLabel = null, string? couponError = null)
+        int? roomTypeId = null, decimal couponAmount = 0, string? couponLabel = null, string? couponError = null,
+        RatePlan? plan = null)
     {
         var request = await BuildQuoteRequestAsync(
-            listingId, checkIn, checkOut, party, ct, roomTypeId: roomTypeId);
+            listingId, checkIn, checkOut, party, ct, roomTypeId: roomTypeId, plan: plan);
         if (request is null) return null;
 
         if (couponAmount > 0)
@@ -1456,10 +1471,14 @@ public class CatalogService(StayHostDbContext db)
             b.Lines.Select(x => new PriceLineDto(x.Key, x.Label, x.Amount)).ToList(),
             party.Counted > l.MaxGuests, l.MaxGuests,
             l.MinNights, b.Nights < l.MinNights,
-            Cancellation.Label(l.CancellationTier),
-            Cancellation.Summary(l.CancellationTier),
+            Cancellation.Label(request.Plan.TierFor(l.CancellationTier)),
+            Cancellation.Summary(request.Plan.TierFor(l.CancellationTier)),
             CouponApplied: b.Coupon > 0,
             CouponDiscount: b.Coupon,
-            CouponError: couponError);
+            CouponError: couponError)
+        {
+            BreakfastFee = b.BreakfastFee,
+            NonRefundableRate = request.Plan.NonRefundableDiscountPercent > 0
+        };
     }
 }
