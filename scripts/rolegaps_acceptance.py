@@ -474,7 +474,10 @@ def s6_coupons():
 # ----------------------------------------------------------------- ĐP-15
 def s7_calendar_file(guest_op):
     """docs/01 ĐP-15 — the one code of docs/01 with no implementation at all."""
-    bid = int(sql('select "Id" from bookings where "Status"=2 order by "Id" desc limit 1'))
+    # A booking with an account behind it: guestcheckout_acceptance leaves
+    # confirmed stays that nobody can sign in to.
+    bid = int(sql('select "Id" from bookings where "Status"=2 and "GuestUserId" is not null '
+                  'order by "Id" desc limit 1'))
     uid = int(sql('select "GuestUserId" from bookings where "Id"=%d' % bid))
     op = sign_in(sql('select "Email" from users where "Id"=%d' % uid))
 
