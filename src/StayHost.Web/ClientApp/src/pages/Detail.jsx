@@ -12,7 +12,7 @@ import { Calendar } from '../components/Calendar.jsx';
 import { DetailMap } from '../components/Maps.jsx';
 import { Icon, AmenityIcon } from '../components/Icon.jsx';
 import { TranslatedText } from '../components/TranslatedText.jsx';
-import { PriceLines } from '../components/modals/ListingModals.jsx';
+import { PriceLines, ReviewStay, HelpfulButton } from '../components/modals/ListingModals.jsx';
 import { t } from '../lib/i18n.js';
 import { setPageMeta, setStructuredData, listingJsonLd, breadcrumbJsonLd, canonicalUrl } from '../lib/seo.js';
 import { NotFound } from './NotFound.jsx';
@@ -484,8 +484,10 @@ function Reviews({ detail, card }) {
                 <div className="review-when">{r.authorLocation ? `${r.authorLocation} · ` : ''}{monthLabel(r.when)}</div>
               </div>
             </div>
+            <ReviewStay review={r} />
             <TranslatedText as="p" text={r.text} />
             <HostReply review={r} />
+            <HelpfulButton review={r} />
             {/* docs/01 AT-02 — a review is reportable in its own right; before
                 this the only way to flag one was to report the whole listing. */}
             {r.id && (

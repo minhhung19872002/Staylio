@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   set, holdDates, payHeld, releaseHold, openSplit, openOverlay, closeOverlay,
-  shareListing, toggleFavorite, applyCoupon, toast, openReport
+  shareListing, toggleFavorite, applyCoupon, toast, openReport, requireAuth
 } from '../../lib/store.js';
-import { money, longDate, parseIso, isoOf } from '../../lib/format.js';
+import { money, longDate, parseIso, isoOf, monthLabel } from '../../lib/format.js';
 import { AmenityIcon } from '../Icon.jsx';
 import { HostReply, StarDistribution } from '../../pages/Detail.jsx';
 import { api } from '../../lib/api.js';
@@ -155,7 +155,44 @@ export function AmenitiesModal() {
   );
 }
 
-const REVIEW_SORTS = [['recent', 'Mới nhất'], ['high', 'Điểm cao nhất'], ['low', 'Điểm thấp nhất']];
+const REVIEW_SORTS = [['recent', 'Mới nhất'], ['high', 'Điểm cao nhất'], ['low', 'Điểm thấp nhất'], ['helpful', 'Hữu ích nhất']];
+
+/** Kind of trip, number of nights, room type — what the stay behind a review was. */
+export function ReviewStay({ review: r }) {
+  const parts = [
+    r.travellerLabel && t(r.travellerLabel),
+    r.nights && `${r.nights} ${t('đêm')}`,
+    r.roomTypeName
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return <div className="review-when" style={{ marginTop: 6 }}>{parts.join(' · ')}</div>;
+}
+
+/** "Hữu ích" — flips this reader's vote and patches the review in place. */
+export function HelpfulButton({ review: r }) {
+  const state = useStore();
+  const vote = async () => {
+    if (!requireAuth()) return;
+    try {
+      const res = await api.reviewHelpful(r.id);
+      const d = state.detail;
+      set({
+        detail: {
+          ...d,
+          reviews: d.reviews.map(x => x.id === r.id
+            ? { ...x, helpfulCount: res.helpfulCount, votedHelpful: res.votedHelpful } : x)
+        }
+      });
+    } catch (err) { toast(err.message); }
+  };
+  if (!r.id || (state.user && state.user.id === r.authorUserId)) return null;
+  return (
+    <button className="text-btn" style={{ marginTop: 8, marginRight: 14, fontSize: 12.5, fontWeight: r.votedHelpful ? 700 : 400 }}
+            aria-pressed={!!r.votedHelpful} onClick={vote}>
+      👍 {t('Hữu ích')}{r.helpfulCount ? ` (${r.helpfulCount})` : ''}
+    </button>
+  );
+}
 
 /* docs/01 TĐ-11 — the codes the server can put on a review, named for reading. */
 const LANGUAGE_NAME = {
@@ -207,13 +244,20 @@ export function ReviewsModal() {
   // offers a row that filters everything away.
   const languages = [...new Set(d.reviews.map(r => r.language).filter(Boolean))];
 
+  // Kinds of trip actually present, in the order the server names them.
+  const travellers = [...new Map(d.reviews.filter(r => r.travellerType)
+    .map(r => [r.travellerType, r.travellerLabel])).entries()];
+  const traveller = state.reviewTraveller;
+
   const list = d.reviews
     .filter(r => !term || r.text.toLowerCase().includes(term) || r.authorName.toLowerCase().includes(term))
     .filter(r => lang === 'all' || r.language === lang)
+    .filter(r => traveller === 'all' || r.travellerType === traveller)
     .sort((a, b) =>
       state.reviewSort === 'high' ? b.rating - a.rating
         : state.reviewSort === 'low' ? a.rating - b.rating
-          : 0);
+          : state.reviewSort === 'helpful' ? (b.helpfulCount ?? 0) - (a.helpfulCount ?? 0)
+            : 0);
 
   return (
     <Modal title={`★ ${d.card.rating.toFixed(2)} · ${d.reviews.length} ${t('đánh giá')}`} size="wide">
@@ -235,6 +279,14 @@ export function ReviewsModal() {
             ))}
           </select>
         )}
+        {travellers.length > 0 && (
+          <select className="field" style={{ flex: '0 0 180px', width: 'auto' }}
+                  aria-label={t('Lọc theo loại khách')}
+                  value={traveller} onChange={e => set({ reviewTraveller: e.target.value })}>
+            <option value="all">{t('Mọi loại khách')}</option>
+            {travellers.map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}
+          </select>
+        )}
       </div>
       <StarDistribution counts={d.ratingBreakdown.starCounts} total={d.reviews.length} />
       <ReviewThemes themes={d.reviewThemes} />
@@ -247,12 +299,14 @@ export function ReviewsModal() {
               <span className="avatar" aria-hidden="true">{r.authorInitials}</span>
               <div style={{ minWidth: 0 }}>
                 <div className="review-name">{r.authorName}</div>
-                <div className="review-when">{r.authorLocation ? `${r.authorLocation} · ` : ''}{r.when}</div>
+                <div className="review-when">{r.authorLocation ? `${r.authorLocation} · ` : ''}{monthLabel(r.when)}</div>
               </div>
               <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700 }}>★ {r.rating.toFixed(1)}</span>
             </div>
+            <ReviewStay review={r} />
             <p>{r.text}</p>
             <HostReply review={r} />
+            <HelpfulButton review={r} />
             {/* docs/01 ĐG-10 — the same flag the detail page carries. It was on
                 the four reviews shown there and not on the hundred behind
                 "xem tất cả", which is where somebody actually reads them. */}

@@ -231,12 +231,40 @@ public class ListingsController(
             idOrSlug, HttpContext.SessionId(), checkIn, checkOut, guests, ct, infants, pets);
         if (detail is null) return NotFound();
 
+        // Which reviews this reader already marked helpful — only a signed-in
+        // reader can vote, so only they have anything to see here.
+        if (await auth.CurrentUserAsync(ct) is { } reader && detail.Reviews.Count > 0)
+        {
+            var mine = await catalog.HelpfulVotesAsync(ReviewVoter(reader.Id),
+                detail.Reviews.Select(r => r.Id).ToList(), ct);
+            detail = detail with
+            {
+                Reviews = detail.Reviews.Select(r => mine.Contains(r.Id) ? r with { VotedHelpful = true } : r).ToList()
+            };
+        }
+
         // docs/03 §6 — the view half of "tỉ lệ xem→đặt". Counted after the page
         // was actually served, and never allowed to fail the request: a ranking
         // signal is not worth a 500 on the page somebody came to read.
         await catalog.RecordViewAsync(detail.Card.Id, ct);
 
         return Ok(detail);
+    }
+
+    private static string ReviewVoter(int userId) => $"u:{userId}";
+
+    /// <summary>
+    /// "Đánh giá này hữu ích" — a toggle, one per reader per review. Signed-in
+    /// only: a vote anybody can cast from a fresh browser is a count anybody can
+    /// inflate, and the count is shown to every reader as a signal.
+    /// </summary>
+    [HttpPost("reviews/{id:int}/helpful")]
+    public async Task<ActionResult<object>> Helpful(int id, CancellationToken ct)
+    {
+        var user = await auth.CurrentUserAsync(ct);
+        if (user is null) return Unauthorized(new { message = "Đăng nhập để bình chọn đánh giá." });
+        var result = await catalog.ToggleHelpfulAsync(id, user.Id, ReviewVoter(user.Id), ct);
+        return result is null ? NotFound() : Ok(result);
     }
 
     [HttpGet("quote")]

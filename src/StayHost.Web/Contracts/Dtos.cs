@@ -1163,7 +1163,17 @@ public record ReviewDto(
     /// <summary>docs/01 TK-05 — set when the author has an account to open. Null for seeded reviews.</summary>
     int? AuthorUserId = null,
     /// <summary>docs/01 TĐ-11 — what the reader filters on. Never null: guessed when unstored.</summary>
-    string Language = "en");
+    string Language = "en")
+{
+    /// <summary>Kind of trip (TravellerTypes), from the stay reviewed; null for seeded reviews.</summary>
+    public string? TravellerType { get; init; }
+    public string? TravellerLabel { get; init; }
+    public int? Nights { get; init; }
+    /// <summary>The hotel room type stayed in, when there was one.</summary>
+    public string? RoomTypeName { get; init; }
+    public int HelpfulCount { get; init; }
+    public bool VotedHelpful { get; init; }
+}
 
 /// <summary>docs/01 TĐ-21 — one subject the reviews keep raising, and its own score.</summary>
 public record ReviewThemeDto(string Key, string Label, int Mentions, double Rating);

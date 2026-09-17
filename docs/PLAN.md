@@ -1489,6 +1489,15 @@ tin" (`docs/03 §4`) đếm theo **ngày nhận phòng** của đơn bị huỷ.
 đơn nhận phòng năm sau thì bị đếm suốt hai năm; huỷ một đơn đã qua ngày thì không
 bị đếm. Giờ đếm theo **lúc chủ nhà huỷ** (`BookingEvents`). L12: **22/22** local.
 
+**Đối chiếu Booking.com — đánh giá.** Mỗi đánh giá gắn với đơn thật giờ ghi **loại
+khách** (công tác / gia đình / cặp đôi / một mình / nhóm bạn — suy ra từ chính
+đoàn khách của đơn, `TravellerTypes.cs`, không hỏi thêm), **số đêm** và **loại
+phòng** nếu là khách sạn. Hộp đánh giá lọc được theo loại khách và xếp **"Hữu ích
+nhất"**; nút **Hữu ích** chỉ cho người đã đăng nhập, một phiếu mỗi người
+(`review_helpful_votes`, khoá duy nhất), tác giả không tự bấm cho mình. Đánh giá
+seed không có đơn nên không có loại khách — chúng chỉ hiện khi lọc "Mọi loại
+khách". L13: **23/23** local.
+
 ---
 
 ## Kiểm chứng

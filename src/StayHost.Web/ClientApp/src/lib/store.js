@@ -211,7 +211,9 @@ export const state = {
   reviewQuery: '',
   reviewSort: 'recent',
   /** docs/01 TĐ-11 — 'all', or a language code present in this listing's reviews. */
-  reviewLanguage: 'all'
+  reviewLanguage: 'all',
+  /** 'all', or a TravellerTypes key present in this listing's reviews. */
+  reviewTraveller: 'all'
 };
 
 /* ------------------------------------------------------------ react bridge */

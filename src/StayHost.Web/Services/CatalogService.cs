@@ -1024,6 +1024,31 @@ public class CatalogService(StayHostDbContext db)
         PayAtProperty = l.AcceptsPayAtProperty
     };
 
+    public async Task<HashSet<int>> HelpfulVotesAsync(string voterKey, List<int> reviewIds, CancellationToken ct) =>
+        (await db.ReviewHelpfulVotes
+            .Where(v => v.VoterKey == voterKey && reviewIds.Contains(v.ReviewId))
+            .Select(v => v.ReviewId).ToListAsync(ct)).ToHashSet();
+
+    /// <summary>Flips this reader's vote; the author cannot vote on their own review.</summary>
+    public async Task<object?> ToggleHelpfulAsync(int reviewId, int userId, string voterKey, CancellationToken ct)
+    {
+        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId && r.PublishedAt != null, ct);
+        if (review is null || review.AuthorUserId == userId) return null;
+
+        var existing = await db.ReviewHelpfulVotes
+            .FirstOrDefaultAsync(v => v.ReviewId == reviewId && v.VoterKey == voterKey, ct);
+        if (existing is null)
+            db.ReviewHelpfulVotes.Add(new ReviewHelpfulVote { ReviewId = reviewId, VoterKey = voterKey });
+        else
+            db.ReviewHelpfulVotes.Remove(existing);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) { db.ChangeTracker.Clear(); } // a double click raced the unique index
+
+        var count = await db.ReviewHelpfulVotes.CountAsync(v => v.ReviewId == reviewId, ct);
+        var voted = await db.ReviewHelpfulVotes.AnyAsync(v => v.ReviewId == reviewId && v.VoterKey == voterKey, ct);
+        return new { helpfulCount = count, votedHelpful = voted };
+    }
+
     public async Task<ListingDetailDto?> GetDetailAsync(
         string idOrSlug, string sessionId, DateOnly? checkIn, DateOnly? checkOut, int guests,
         CancellationToken ct, int infants = 0, int pets = 0)
@@ -1031,7 +1056,7 @@ public class CatalogService(StayHostDbContext db)
         var query = db.Listings
             .Include(l => l.Images)
             .Include(l => l.Amenities).ThenInclude(la => la.Amenity)
-            .Include(l => l.Reviews)
+            .Include(l => l.Reviews).ThenInclude(r => r.Booking!).ThenInclude(b => b.RoomType)
             .Include(l => l.Host)
             .Include(l => l.Guidebook)
             .AsSplitQuery();
@@ -1054,14 +1079,34 @@ public class CatalogService(StayHostDbContext db)
 
         // docs/03 §7 — a review that has not been published yet is invisible to
         // everyone, including the person it is about.
+        var reviewIds = listing.Reviews.Select(r => r.Id).ToList();
+        var helpful = await db.ReviewHelpfulVotes
+            .Where(v => reviewIds.Contains(v.ReviewId))
+            .GroupBy(v => v.ReviewId)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
         var reviews = listing.Reviews
             .Where(r => r.PublishedAt != null)
             .OrderByDescending(r => r.CreatedAt)
-            .Select(r => new ReviewDto(
-                r.Id, r.AuthorName, r.AuthorInitials, r.AuthorLocation, r.When, r.Text,
-                Math.Round(r.Rating, 1), r.HostReply, r.HostRepliedAt, r.AuthorUserId,
-                // docs/01 TĐ-11 — what the language filter reads.
-                ReviewInsights.LanguageOf(r.Language, r.Text)))
+            .Select(r =>
+            {
+                var type = r.Booking is { } bk
+                    ? TravellerTypes.Of(bk.Adults, bk.Children, bk.Infants, bk.IsBusinessTrip)
+                    : null;
+                return new ReviewDto(
+                    r.Id, r.AuthorName, r.AuthorInitials, r.AuthorLocation, r.When, r.Text,
+                    Math.Round(r.Rating, 1), r.HostReply, r.HostRepliedAt, r.AuthorUserId,
+                    // docs/01 TĐ-11 — what the language filter reads.
+                    ReviewInsights.LanguageOf(r.Language, r.Text))
+                {
+                    TravellerType = type,
+                    TravellerLabel = type is null ? null : TravellerTypes.Labels[type],
+                    Nights = r.Booking?.Nights,
+                    RoomTypeName = r.Booking?.RoomType?.Name,
+                    HelpfulCount = helpful.GetValueOrDefault(r.Id)
+                };
+            })
             .ToList();
 
         // docs/01 TĐ-10 — the distribution, five stars first.

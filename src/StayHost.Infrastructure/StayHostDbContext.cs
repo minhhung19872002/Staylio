@@ -39,6 +39,7 @@ public class StayHostDbContext(DbContextOptions<StayHostDbContext> options) : Db
     public DbSet<PriceRule> PriceRules => Set<PriceRule>();
     public DbSet<GuidebookPlace> GuidebookPlaces => Set<GuidebookPlace>();
     public DbSet<GuestReview> GuestReviews => Set<GuestReview>();
+    public DbSet<ReviewHelpfulVote> ReviewHelpfulVotes => Set<ReviewHelpfulVote>();
     public DbSet<TaxRule> TaxRules => Set<TaxRule>();
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
     public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
@@ -1069,6 +1070,15 @@ public class StayHostDbContext(DbContextOptions<StayHostDbContext> options) : Db
             e.HasIndex(x => new { x.ListingId, x.From });
             e.HasOne(x => x.Listing).WithMany(l => l.PriceRules)
                 .HasForeignKey(x => x.ListingId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ReviewHelpfulVote>(e =>
+        {
+            e.ToTable("review_helpful_votes");
+            e.HasIndex(x => new { x.ReviewId, x.VoterKey }).IsUnique();
+            e.Property(x => x.VoterKey).HasMaxLength(80);
+            e.HasOne(x => x.Review).WithMany()
+                .HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<GuestReview>(e =>

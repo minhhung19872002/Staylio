@@ -636,6 +636,34 @@ def forget_fixture_cancellations():
         "where \"ReviewNote\" like 'Tạm ẩn: chủ nhà đã huỷ%'")
 
 
+def l_reviews_say_who_and_count_helpful():
+    name = "L13. Đánh giá ghi loại khách + số đêm, nút Hữu ích một phiếu mỗi người"
+    row = sql("select r.\"Id\" || '|' || l.\"Slug\" || '|' || coalesce(r.\"AuthorUserId\",0) from reviews r "
+              "join listings l on l.\"Id\"=r.\"ListingId\" where r.\"BookingId\" is not null "
+              "and r.\"PublishedAt\" is not null order by r.\"Id\" desc limit 1")
+    if not row:
+        return skip(name, "chưa có đánh giá nào gắn với đơn thật")
+    rid, slug, author = row.split("|")
+    rid = int(rid)
+    anon, _ = call(opener(), "/api/reviews/%d/helpful" % rid, m="POST")
+    reader, _ = register("vote%s@staylio.vn" % RUN, "Nguoi Doc")
+    v1, r1 = call(reader, "/api/reviews/%d/helpful" % rid, m="POST")
+    _, detail = call(reader, "/api/listings/%s" % slug)
+    mine = next((r for r in detail["reviews"] if r["id"] == rid), {})
+    v2, r2 = call(reader, "/api/reviews/%d/helpful" % rid, m="POST")
+    self_vote = None
+    if author != "0":
+        author_op = sign_in(sql("select \"Email\" from users where \"Id\"=%s" % author))
+        self_vote, _ = call(author_op, "/api/reviews/%d/helpful" % rid, m="POST")
+    ok(name,
+       anon == 401 and v1 == 200 and r1["votedHelpful"] and mine.get("votedHelpful") is True
+       and mine.get("helpfulCount") == r1["helpfulCount"] and mine.get("travellerType")
+       and mine.get("nights") and v2 == 200 and not r2["votedHelpful"]
+       and r2["helpfulCount"] == r1["helpfulCount"] - 1 and self_vote in (None, 404),
+       "ẩn danh=%s, bấm=%s→%s, trang thấy=%s/%s/%s đêm, bấm lại=%s, tác giả tự bấm=%s"
+       % (anon, v1, r1, mine.get("votedHelpful"), mine.get("travellerLabel"), mine.get("nights"), r2, self_vote))
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
@@ -649,7 +677,7 @@ def main():
                       l_credit_not_spent_twice, l_turnover_back_to_back,
                       l_host_cancel_is_fined, l_service_waits_for_the_provider,
                       l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings,
-                      l_trip_shared_without_the_keys]
+                      l_trip_shared_without_the_keys, l_reviews_say_who_and_count_helpful]
     for s in scenarios:
         try:
             s()
