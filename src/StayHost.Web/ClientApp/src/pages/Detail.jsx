@@ -697,6 +697,13 @@ function ThingsToKnow({ detail }) {
           <h3>{t('Chính sách huỷ')}</h3>
           <ul><li>{t(detail.cancellationPolicy)}</li></ul>
         </div>
+        {/* ChildPolicy.Lines — fixed sentences, so the dictionary covers them. */}
+        {!!detail.childPolicy?.length && (
+          <div className="know">
+            <h3>{t('Trẻ em và giường phụ')}</h3>
+            <ul>{detail.childPolicy.map(r => <li key={r}>{t(r)}</li>)}</ul>
+          </div>
+        )}
       </div>
 
       {/* docs/01 ĐG-12 — public record of the host pulling out of confirmed stays. */}

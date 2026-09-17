@@ -1543,6 +1543,15 @@ khớp tin có giảm giá khuyến mãi, đặt sớm, phút chót hoặc Stayl
 thêm nút nhanh "Ưu đãi" trên thanh lọc. Khách sạn mẫu được gắn sao theo giá phòng
 rẻ nhất (seed + migration `HotelStars`). H12: **27/27**.
 
+**Đối chiếu Booking.com — trẻ em và giường phụ.** Mỗi tin có "nhận trẻ em" (mặc
+định có), "có cũi", "có giường phụ" (`ChildPolicy.cs`). Tin không nhận trẻ em
+**từ chối đoàn có trẻ em hoặc em bé** ngay ở bước kiểm tra đặt được (bước 3b của
+`Availability`, cạnh luật thú cưng); cũi và giường phụ là thông tin — khách xin
+bằng yêu cầu đặc biệt. Trang chỗ nghỉ có mục "Trẻ em và giường phụ". Migration
+đặt `ChildrenAllowed` **mặc định `true`** cho mọi tin đang bán — EF sinh sẵn
+`false`, tức là cả danh mục thành "chỉ người lớn" sau một lần deploy (cùng loại
+lỗi `WorkingDaysMask` ở `CLAUDE.md §4`). L17: **28/28**.
+
 ---
 
 ## Kiểm chứng

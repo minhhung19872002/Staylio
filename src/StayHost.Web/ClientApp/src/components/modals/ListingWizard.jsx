@@ -68,6 +68,7 @@ const BLANK = {
   pricePerNight: 800000, cleaningFee: 200000, minNights: 1,
   instantBook: true, instantBookRequiresVerified: false, instantBookRequiresGoodReviews: false,
   requireGuestPhoto: false, requireVerifiedToBook: false, acceptsPayAtProperty: false, hotelStars: 0,
+  childrenAllowed: true, cribAvailable: false, extraBedAvailable: false,
   isPublished: false, cancellationTier: 'Moderate',
   description: '', highlight: '', images: [], imageCaptions: [], amenityKeys: [],
   latitude: null, longitude: null,
@@ -219,7 +220,7 @@ export function ListingWizard() {
       {key === 'amenities' && <StepAmenities form={form} setForm={setForm} meta={meta} />}
       {key === 'photos' && <StepPhotos form={form} setForm={setForm} />}
       {key === 'words' && <StepWords form={form} field={field} />}
-      {key === 'price' && <StepPrice form={form} num={num} rule={rule} meta={meta} />}
+      {key === 'price' && <StepPrice form={form} num={num} rule={rule} field={field} meta={meta} />}
       {key === 'rules' && <StepRules form={form} field={field} num={num} />}
       {key === 'checkin' && <StepCheckIn form={form} arrival={arrival} />}
       {key === 'legal' && <StepLegal form={form} legal={legal} />}
@@ -771,7 +772,7 @@ function StepWords({ form, field }) {
   </>;
 }
 
-function StepPrice({ form, num, rule, meta }) {
+function StepPrice({ form, num, rule, field, meta }) {
   const guestFee = meta?.fees?.guestServiceFeeRate ?? 0.14;
   const hostFee = meta?.fees?.hostServiceFeeRate ?? 0.03;
   const guestPays = form.pricePerNight + form.cleaningFee;
@@ -890,6 +891,22 @@ function StepPrice({ form, num, rule, meta }) {
                 onClick={() => rule('petsAllowed', !form.pricing.petsAllowed)}>
           {form.pricing.petsAllowed ? t('Nhận thú cưng') : t('Không nhận thú cưng')}
         </button>
+      </div>
+    </section>
+
+    <section className="modal-section">
+      <h3>{t('Trẻ em và giường phụ')}</h3>
+      <div className="pill-row" style={{ marginTop: 14 }}>
+        <button type="button" className={`pill ${form.childrenAllowed !== false ? 'is-on' : ''}`}
+                onClick={() => field('childrenAllowed', form.childrenAllowed === false)}>
+          {form.childrenAllowed !== false ? t('Nhận trẻ em') : t('Không nhận trẻ em')}
+        </button>
+        {form.childrenAllowed !== false && (
+          <button type="button" className={`pill ${form.cribAvailable ? 'is-on' : ''}`}
+                  onClick={() => field('cribAvailable', !form.cribAvailable)}>{t('Có cũi cho em bé')}</button>
+        )}
+        <button type="button" className={`pill ${form.extraBedAvailable ? 'is-on' : ''}`}
+                onClick={() => field('extraBedAvailable', !form.extraBedAvailable)}>{t('Có giường phụ')}</button>
       </div>
     </section>
   </>;

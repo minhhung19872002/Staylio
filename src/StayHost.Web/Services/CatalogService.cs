@@ -1285,7 +1285,10 @@ public class CatalogService(StayHostDbContext db, LoyaltyService loyalty)
             GuidebookGroups(listing),
             // docs/01 TĐ-23 — "Hiếm có", from the same calendar the picker greys out.
             RareFind(unavailable, closedByHost, today),
-            themes);
+            themes)
+        {
+            ChildPolicy = Domain.ChildPolicy.Lines(listing)
+        };
     }
 
     /// <summary>

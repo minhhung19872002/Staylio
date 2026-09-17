@@ -343,7 +343,10 @@ public record HostListingDto(
     /// <summary>docs/01 AT-01 — review stance, so the host sees "Đang chờ duyệt" / "Bị từ chối".</summary>
     string ReviewStatus = "Approved",
     string? ReviewNote = null,
-    int HotelStars = 0);
+    int HotelStars = 0,
+    bool ChildrenAllowed = true,
+    bool CribAvailable = false,
+    bool ExtraBedAvailable = false);
 
 /// <summary>The host-settable half of docs/03 §1 — discounts and surcharges.</summary>
 public record PricingRulesDto(
@@ -406,7 +409,11 @@ public record SaveListingRequest(
     /// <summary>docs/01 CĐ-03 — omitted by older clients; the guide is then left alone.</summary>
     CheckInSetupDto? CheckIn = null,
     /// <summary>A hotel's star class; ignored for other kinds of place.</summary>
-    int HotelStars = 0);
+    int HotelStars = 0,
+    /// <summary>ChildPolicy. Older clients omit them and get the defaults a new place has.</summary>
+    bool ChildrenAllowed = true,
+    bool CribAvailable = false,
+    bool ExtraBedAvailable = false);
 
 /// <summary>
 /// docs/01 CĐ-03 and CĐ-04 — the arrival guide as the host fills it in. Times
@@ -1252,7 +1259,11 @@ public record ListingDetailDto(
     /// docs/01 TĐ-21 — what the reviews keep saying, strongest first. Empty
     /// until there are enough of them to be talking about anything.
     /// </summary>
-    IReadOnlyList<ReviewThemeDto>? ReviewThemes = null);
+    IReadOnlyList<ReviewThemeDto>? ReviewThemes = null)
+{
+    /// <summary>"Chính sách trẻ em và giường phụ", as sentences (ChildPolicy.Lines).</summary>
+    public IReadOnlyList<string> ChildPolicy { get; init; } = [];
+}
 
 /// <summary>docs/01 TĐ-22 — one heading of a guidebook and what is under it.</summary>
 public record GuidebookGroupDto(string Category, string Label, IReadOnlyList<GuidebookPlaceDto> Places);

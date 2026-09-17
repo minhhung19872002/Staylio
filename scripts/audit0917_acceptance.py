@@ -797,6 +797,30 @@ def l_loyalty_discount():
         sql('update listings set "LoyaltyDiscountPercent"=%s where "Id"=%d' % (old or 0, lid))
 
 
+def l_child_policy():
+    name = "L17. Chỗ không nhận trẻ em: từ chối đoàn có trẻ, vẫn nhận người lớn; tin cũ vẫn nhận trẻ em"
+    lst = instant_listing()
+    lid = lst["id"]
+    was = sql('select "ChildrenAllowed" from listings where "Id"=%d' % lid)
+    others = sql('select count(*) from listings where not "ChildrenAllowed"')
+    sql('update listings set "ChildrenAllowed"=false where "Id"=%d' % lid)
+    try:
+        op = opener()
+        # An infant: not counted against capacity, so only the child rule can refuse it.
+        kid, kid_res = hold(op, lid, 230 + int(RUN) % 20, infants=1)
+        adult, adult_res = hold(op, lid, 230 + int(RUN) % 20)
+        if adult in (200, 201):
+            call(op, "/api/bookings/%d/release" % adult_res["id"], m="POST")
+        _, detail = call(op, "/api/listings/%d" % lid)
+        ok(name,
+           was == "t" and others == "0" and kid == 400 and "trẻ em" in (kid_res or {}).get("message", "")
+           and adult in (200, 201) and detail.get("childPolicy") == ["Không nhận trẻ em."],
+           "trước=%s, tin khác không nhận trẻ=%s, có trẻ=%s %s, người lớn=%s, trang=%s"
+           % (was, others, kid, (kid_res or {}).get("message"), adult, detail.get("childPolicy")))
+    finally:
+        sql('update listings set "ChildrenAllowed"=true where "Id"=%d' % lid)
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
@@ -812,7 +836,8 @@ def main():
                       l_host_cancel_is_fined, l_service_waits_for_the_provider,
                       l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings,
                       l_trip_shared_without_the_keys, l_reviews_say_who_and_count_helpful,
-                      l_listing_questions, l_hotel_rate_plans, l_loyalty_discount]
+                      l_listing_questions, l_hotel_rate_plans, l_loyalty_discount,
+                      l_child_policy]
     for s in scenarios:
         try:
             s()

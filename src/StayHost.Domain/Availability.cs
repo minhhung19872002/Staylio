@@ -20,7 +20,9 @@ public static class Availability
         DatesTaken = 8,
         TurnoverTime = 9,
         /// <summary>Not one of the nine, but nothing downstream makes sense without it.</summary>
-        InvalidRange = 10
+        InvalidRange = 10,
+        /// <summary>The place does not take children (ChildPolicy).</summary>
+        Children = 11
     }
 
     public readonly record struct Result(bool Ok, Reason Reason, string Message)
@@ -76,6 +78,10 @@ public static class Availability
             if (req.Party.Pets > l.MaxPets)
                 return Result.Fail(Reason.Pets, $"Chỗ nghỉ này nhận tối đa {l.MaxPets} thú cưng.");
         }
+
+        // 3b — children, when the host said the place is not for them.
+        if (ChildPolicy.Refuses(l, req.Party))
+            return Result.Fail(Reason.Children, ChildPolicy.RefusalMessage);
 
         // 4 — advance notice, measured in the listing's time zone.
         if (req.CheckIn < today)

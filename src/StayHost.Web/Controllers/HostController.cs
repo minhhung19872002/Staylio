@@ -689,6 +689,9 @@ public class HostController(
             RequireVerifiedToBook = src.RequireVerifiedToBook,
             AcceptsPayAtProperty = src.AcceptsPayAtProperty,
             HotelStars = src.HotelStars,
+            ChildrenAllowed = src.ChildrenAllowed,
+            CribAvailable = src.CribAvailable,
+            ExtraBedAvailable = src.ExtraBedAvailable,
             CancellationTier = src.CancellationTier,
             Description = src.Description,
             SpaceHighlight = src.SpaceHighlight,
@@ -989,6 +992,9 @@ public class HostController(
         listing.AcceptsPayAtProperty = r.AcceptsPayAtProperty;
         // Stars belong to hotels only; any other place stays unrated.
         listing.HotelStars = listing.Type == PlaceType.Hotel ? Math.Clamp(r.HotelStars, 0, 5) : 0;
+        listing.ChildrenAllowed = r.ChildrenAllowed;
+        listing.CribAvailable = r.ChildrenAllowed && r.CribAvailable;
+        listing.ExtraBedAvailable = r.ExtraBedAvailable;
 
         // docs/08 §5.2 and §5.5 — a listing the sanction hid stays hidden until
         // an admin restores it; the host flipping the switch is not a restore.
@@ -1181,7 +1187,8 @@ public class HostController(
             l.ApplianceNotes, l.DoorCode, l.HostPhone),
         l.InstantBookRequiresVerified, l.InstantBookRequiresGoodReviews,
         l.RequireGuestPhoto, l.RequireVerifiedToBook, l.AcceptsPayAtProperty,
-        l.ReviewStatus.ToString(), l.ReviewNote, l.HotelStars);
+        l.ReviewStatus.ToString(), l.ReviewNote, l.HotelStars,
+        l.ChildrenAllowed, l.CribAvailable, l.ExtraBedAvailable);
 
     private static readonly System.Text.Json.JsonSerializerOptions LayoutJson =
         new(System.Text.Json.JsonSerializerDefaults.Web);

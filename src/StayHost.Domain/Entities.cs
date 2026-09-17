@@ -334,6 +334,11 @@ public class Listing
     /// <summary>A hotel's official star class, 1–5; 0 for unrated and for every non-hotel.</summary>
     public int HotelStars { get; set; }
 
+    /* ChildPolicy — "chính sách trẻ em và giường phụ". */
+    public bool ChildrenAllowed { get; set; } = true;
+    public bool CribAvailable { get; set; }
+    public bool ExtraBedAvailable { get; set; }
+
     /// <summary>docs/01 ĐP-03 — instant book only for identity-verified guests.</summary>
     public bool InstantBookRequiresVerified { get; set; }
     /// <summary>docs/01 ĐP-03 — instant book only for guests with good reviews.</summary>
