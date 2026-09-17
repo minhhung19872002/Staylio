@@ -980,6 +980,34 @@ public class BookingsController(
         return Content(text, Ical.ContentType);
     }
 
+    /// <summary>
+    /// Forward the plan of a confirmed stay to somebody travelling along —
+    /// dates, place, reference; never the price, address or door code.
+    /// </summary>
+    [HttpPost("{id:int}/share")]
+    public async Task<IActionResult> Share(int id, [FromBody] ShareTripRequest req, CancellationToken ct)
+    {
+        var booking = await FindOwnedAsync(id, ct, includeListing: true);
+        if (booking is null) return NotFound();
+        if (!TripShare.CanShare(booking.Status))
+            return BadRequest(new { message = "Chỉ gửi được khi chuyến đi đã được xác nhận." });
+        if (!Identity.LooksLikeEmail(req.Email))
+            return BadRequest(new { message = "Email người nhận không hợp lệ." });
+
+        var subject = TripShare.Subject(booking.Reference);
+        var sent = await db.EmailMessages.CountAsync(m => m.Subject == subject, ct);
+        if (sent >= TripShare.MaxPerBooking)
+            return StatusCode(429, new { message = $"Mỗi đơn chỉ gửi được {TripShare.MaxPerBooking} lần." });
+
+        var listing = booking.Listing!;
+        notifications.QueueEmailOnly(req.Email!.Trim(), req.Name?.Trim(), subject,
+            TripShare.Body(booking.GuestName ?? "Bạn đồng hành", listing.Title, listing.City,
+                booking.CheckIn, booking.CheckOut, booking.Nights, booking.Guests, booking.Reference),
+            $"/rooms/{listing.Slug}");
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
     /// <summary>What the guest wants to read in their own calendar, not a receipt.</summary>
     private static string CalendarNote(Booking b)
     {

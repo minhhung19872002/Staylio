@@ -1596,6 +1596,8 @@ public record CreateBookingRequest(
     bool IsBusinessTrip = false,
     IReadOnlyList<string>? SpecialRequests = null);
 
+public record ShareTripRequest(string? Email, string? Name);
+
 /// <summary>The same details, corrected after booking while the stay is ahead.</summary>
 public record StayDetailsRequest(
     int? EstimatedArrivalHour, string? StayingGuestName, bool IsBusinessTrip,

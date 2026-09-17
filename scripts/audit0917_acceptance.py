@@ -603,6 +603,39 @@ def l_guest_review_has_three_headings():
        s1 == 400 and s2 == 200 and row == "4|5|3", "thiếu mục=%s, đủ mục=%s, lưu=%s" % (s1, s2, row))
 
 
+def l_trip_shared_without_the_keys():
+    name = "L12. Gửi xác nhận cho người đi cùng: có ngày và mã, không có giá/địa chỉ/mã cửa"
+    lst = instant_listing()
+    guest, _ = register("share%s@staylio.vn" % RUN, "Khach Chia Se")
+    st, b = hold(guest, lst["id"], 60 + int(RUN) % 20)
+    if st not in (200, 201):
+        return ok(name, False, "giữ chỗ %s %s" % (st, b))
+    early, _ = call(guest, "/api/bookings/%d/share" % b["id"], {"email": "ban%s@vidu.vn" % RUN})
+    gateway.pay(call, guest, b["id"], {"paymentMethod": "card", "cardLast4": "4242"})
+    bad, _ = call(guest, "/api/bookings/%d/share" % b["id"], {"email": "khong-phai-email"})
+    stranger, _ = call(opener(), "/api/bookings/%d/share" % b["id"], {"email": "ban%s@vidu.vn" % RUN})
+    good, _ = call(guest, "/api/bookings/%d/share" % b["id"], {"email": "ban%s@vidu.vn" % RUN})
+    body = sql("select \"Body\" from email_messages where \"ToEmail\"='ban%s@vidu.vn' order by \"Id\" desc limit 1" % RUN)
+    ref = sql("select \"Reference\" from bookings where \"Id\"=%d" % b["id"])
+    secrets = sql("select coalesce(\"AddressLine\",'') || '|' || coalesce(\"DoorCode\",'') from listings where \"Id\"=%d" % lst["id"]).split("|")
+    leaked = [x for x in secrets if x and x in body] + (["giá"] if "₫" in body else [])
+    ok(name, early == 400 and bad == 400 and stranger == 404 and good == 204 and ref in body and not leaked,
+       "chưa trả=%s, email sai=%s, người lạ=%s, gửi=%s, có mã=%s, lộ=%s"
+       % (early, bad, stranger, good, ref in body, leaked))
+
+
+def forget_fixture_cancellations():
+    """docs/03 §4 hides a listing on its host's third cancellation in a year, and
+    L3/L8 cancel as the host on every run. Earlier runs' cancellations are moved
+    back past the year and the listing they hid is shown again, so one run does
+    not decide whether the next can book at all."""
+    sql("update booking_events set \"CreatedAt\" = \"CreatedAt\" - interval '2 years' "
+        "where \"ToStatus\"=9 and \"BookingId\" in (select \"Id\" from bookings where \"GuestEmail\" like '%@vidu.vn' "
+        "or \"GuestUserId\" in (select \"Id\" from users where \"Email\" like 'hc%@staylio.vn' or \"Email\" like 'fine%@staylio.vn'))")
+    sql("update listings set \"ReviewStatus\"=0, \"ReviewNote\"=null "
+        "where \"ReviewNote\" like 'Tạm ẩn: chủ nhà đã huỷ%'")
+
+
 def main():
     print("Staylio · nghiệm thu đợt soát 17/09/2026 — %s (%s)\n" % (B, "local" if LOCAL else "prod, chỉ HTTP"))
     scenarios = [s_security_headers, s_secure_cookie, s_pay_refuses_unknown_methods,
@@ -610,11 +643,13 @@ def main():
                  s_shield_is_private, s_verify_link_not_in_response, s_ical_is_public_only,
                  s_stay_details_reach_the_host, s_search_filters_like_booking]
     if LOCAL:
+        forget_fixture_cancellations()
         scenarios += [l_cohost_needs_confirmed_email, l_phone_change_resets_confirmation,
                       l_host_cancel_blocks_dates, l_min_nights_keeps_price, l_gift_card_redeemed_once,
                       l_credit_not_spent_twice, l_turnover_back_to_back,
                       l_host_cancel_is_fined, l_service_waits_for_the_provider,
-                      l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings]
+                      l_provider_cancel_refunds_credits_and_fines, l_guest_review_has_three_headings,
+                      l_trip_shared_without_the_keys]
     for s in scenarios:
         try:
             s()

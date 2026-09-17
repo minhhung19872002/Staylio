@@ -431,11 +431,15 @@ public class HostOperationsController(
                 booking, "system", "Chủ nhà mất danh hiệu Siêu chủ nhà do tự huỷ đơn."));
         }
 
-        var yearAgo = DateOnly.FromDateTime(now).AddYears(-1);
+        // "Trong 1 năm" is when the host cancelled, not when the stay was due:
+        // counting by check-in kept a cancellation of a stay a year out on the
+        // record for two years, and ignored one whose stay had already passed.
+        var yearAgo = now.AddYears(-1);
         var cancels = await db.Bookings.CountAsync(b =>
-            b.Listing!.HostId == hostId && b.CheckIn >= yearAgo
+            b.Listing!.HostId == hostId
             && b.Status == BookingStatus.CancelledByHost && b.CancelledBy == CancelledBy.Host
-            && b.Id != booking.Id, ct) + 1;
+            && b.Id != booking.Id
+            && b.Events.Any(e => e.ToStatus == BookingStatus.CancelledByHost && e.CreatedAt >= yearAgo), ct) + 1;
 
         if (cancels >= HostCancelHideAt && booking.Listing is { } listing
             && listing.ReviewStatus == ListingReviewStatus.Approved)

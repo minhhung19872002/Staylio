@@ -1478,6 +1478,17 @@ cần trả trước". Ba bộ lọc có mặt trong URL, trong bộ đếm củ
 phần "bỏ bộ lọc nào thì có kết quả". Trang trống cũng đã đi qua từ điển. H11:
 **21/21** local.
 
+**Đối chiếu Booking.com — sau khi đặt.** Trang chuyến đi có **"Gửi cho người đi
+cùng"** (`TripShare.cs`: chỉ khi đơn đã xác nhận, tối đa 10 lần mỗi đơn, thư chỉ
+mang ngày, nơi ở và mã đơn — **không giá, không địa chỉ, không mã cửa**, vì một
+email gõ vào ô không phải là danh tính), **"Đặt lại chỗ này"** cho chuyến đã xong
+hoặc đã huỷ, và **số khẩn cấp 113/114/115** trong hướng dẫn nhận phòng.
+
+**Lỗi thật lộ ra khi chạy lại bộ nghiệm thu:** luật "huỷ lần 3 trong 1 năm thì ẩn
+tin" (`docs/03 §4`) đếm theo **ngày nhận phòng** của đơn bị huỷ. Huỷ hôm nay một
+đơn nhận phòng năm sau thì bị đếm suốt hai năm; huỷ một đơn đã qua ngày thì không
+bị đếm. Giờ đếm theo **lúc chủ nhà huỷ** (`BookingEvents`). L12: **22/22** local.
+
 ---
 
 ## Kiểm chứng

@@ -71,7 +71,7 @@ thì **code sai**, không phải tài liệu sai.
 
 ## 3. Hiện trạng
 
-**Toàn bộ xanh (17/09/2026).** 1288 test nghiệp vụ + **24 test tầng web**
+**Toàn bộ xanh (17/09/2026).** 1290 test nghiệp vụ + **24 test tầng web**
 (`tests/StayHost.Web.Tests`) · **30/30** kịch bản cổng thanh
 toán thật (`scripts/gateway_acceptance.py`, gọi sandbox VNPay/MoMo/ZaloPay ngoài
 đời) · **35/35** kịch bản chuyển tiền cho chủ nhà và đối chiếu sao kê (`scripts/payout_acceptance.py`) ·
@@ -797,6 +797,13 @@ React Router 7 + Leaflet trong `src/StayHost.Web/ClientApp`, build ra
   Đi kèm hai điều đáng nhớ: `/api/listings` **không nhận `adults`** trong khi `/api/quote`
   **có**, nên cùng một chuỗi truy vấn cho hai con số khác nhau; và bảng tổng của
   `acceptance.py` đóng cứng `/10`, thêm một kịch bản là nó in "11/10". Giờ tổng tự đếm.
+- **"Trong 1 năm" phải đọc theo lúc sự việc xảy ra, không theo ngày của đơn.**
+  Luật ẩn tin sau lần huỷ thứ ba đếm `b.CheckIn >= yearAgo` — nghe hợp lý, nhưng
+  một đơn nhận phòng năm sau bị huỷ hôm nay thành ra được đếm suốt hai năm. Lộ ra
+  vì `audit0917_acceptance.py` huỷ đơn xa ngày ở mỗi lượt chạy, và tới lượt thứ ba
+  tin mẫu **tự biến mất khỏi sàn** giữa chừng, kéo bốn kịch bản khác hỏng theo với
+  lý do "Chỗ nghỉ này hiện không nhận đặt". Mốc thời điểm của một hành động nằm ở
+  `BookingEvents`, không nằm trên đơn.
 - **Phép soát của chính mình cũng phải kiểm là nó có soát gì không.** Lượt đầu đối chiếu
   giá ba mặt dùng nhầm tên trường (`totalForStay` thay vì `stayTotal`, và trang chi tiết
   không có khoá `quote`), nên hai trong ba giá trị là `None`, bị lọc đi, và script báo
@@ -958,7 +965,7 @@ RS256 theo bộ khoá công khai của chính họ (`ExternalTokenVerifier`), to
 ## 6. Kiểm chứng trước khi commit
 
 ```bash
-dotnet test tests/StayHost.Domain.Tests            # 1288 test nghiệp vụ
+dotnet test tests/StayHost.Domain.Tests            # 1290 test nghiệp vụ
 dotnet test tests/StayHost.Web.Tests               # 24 test tầng web (GatewayReply, PublicNetworkOnly)
 python scripts/acceptance.py                       # 11 tình huống của docs/04
 python scripts/admin_acceptance.py                 # 10 tình huống của docs/08 §13

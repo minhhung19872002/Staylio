@@ -106,6 +106,11 @@ export function Trip() {
                 <button className="btn btn-outline btn-sm"
                         onClick={() => previewCancel(b.id)}>{t('Huỷ chuyến đi')}</button>
               )}
+              {/* Booking.com's "book again" — the same place, fresh dates. */}
+              {['Completed', 'CancelledByGuest', 'CancelledByHost', 'Expired', 'Declined'].includes(b.status) && (
+                <button className="btn btn-outline btn-sm"
+                        onClick={() => navigate(`/rooms/${b.listingSlug}`)}>{t('Đặt lại chỗ này')}</button>
+              )}
               {/* docs/01 CĐ-12 — get help scoped to this exact booking. */}
               <button className="btn btn-outline btn-sm"
                       onClick={() => navigate('/resolutions', { state: { bookingId: b.id } })}>
@@ -259,6 +264,11 @@ function CheckInSection({ booking }) {
       )}
 
       {g.directions && <p className="guide-note">{g.directions}</p>}
+
+      {/* Vietnam's national emergency lines — the same everywhere in the country. */}
+      <p className="guide-note">
+        {t('Số khẩn cấp:')} <a href="tel:113">113</a> {t('công an')} · <a href="tel:114">114</a> {t('cứu hoả')} · <a href="tel:115">115</a> {t('cấp cứu')}
+      </p>
 
       {!!g.applianceNotes.length && <>
         <h3 className="guide-sub">{t('Hướng dẫn thiết bị')}</h3>
@@ -722,6 +732,46 @@ function History({ events }) {
   );
 }
 
+/**
+ * Send the plan to somebody coming along. The server sends dates, place and
+ * reference only — never the price, address or door code.
+ */
+function ShareTrip({ bookingId }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const send = async e => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.shareTrip(bookingId, email.trim(), null);
+      setEmail('');
+      setOpen(false);
+      toast(t('Đã gửi thông tin chuyến đi.'));
+    } catch (err) { toast(err.message); }
+    finally { setBusy(false); }
+  };
+
+  if (!open) {
+    return (
+      <button className="btn btn-outline btn-block btn-sm" style={{ marginTop: 10 }} onClick={() => setOpen(true)}>
+        {t('Gửi cho người đi cùng')}
+      </button>
+    );
+  }
+  return (
+    <form onSubmit={send} style={{ marginTop: 10 }}>
+      <label className="form-field">
+        <span className="cap">{t('Email người đi cùng')}</span>
+        <input type="email" required value={email} onChange={e => setEmail(e.target.value)} />
+      </label>
+      <p className="meta" style={{ margin: '0 0 8px' }}>{t('Họ nhận ngày, nơi ở và mã đặt chỗ — không có giá, địa chỉ hay mã cửa.')}</p>
+      <button className="btn btn-dark btn-block btn-sm" disabled={busy}>{t('Gửi')}</button>
+    </form>
+  );
+}
+
 /* Mirrors StayDetails.Editable: only while the stay is still ahead. */
 const DETAILS_EDITABLE = ['PendingPayment', 'PendingHostApproval', 'Confirmed'];
 
@@ -832,6 +882,8 @@ function Receipt({ booking: b }) {
          href={`/api/bookings/${b.id}/calendar.ics`}>
         {t('Thêm vào lịch của tôi')}
       </a>
+
+      {['Confirmed', 'InProgress'].includes(b.status) && <ShareTrip bookingId={b.id} />}
     </aside>
   );
 }

@@ -345,6 +345,9 @@ export const api = {
   /* docs/07 §2.5 — find a booking again with no account. */
   lookupBooking: (reference, email) =>
     request('/api/bookings/lookup', { method: 'POST', body: JSON.stringify({ reference, email }) }),
+  /* Forward a confirmed stay's plan to a travel companion. */
+  shareTrip: (bookingId, email, name) =>
+    request(`/api/bookings/${bookingId}/share`, { method: 'POST', body: JSON.stringify({ email, name }) }),
   /* Arrival hour, who is staying, work trip, special requests — while the stay is ahead. */
   updateStayDetails: (bookingId, body) =>
     request(`/api/bookings/${bookingId}/details`, { method: 'PUT', body: JSON.stringify(body) }),
